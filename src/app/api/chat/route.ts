@@ -4,7 +4,9 @@ import { runAgent } from "@/server/agents/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+// Vercel caps this per plan (300s on Hobby). Long agent runs stream their
+// progress into the activity feed, so a cut-off loses the tail, not the work.
+export const maxDuration = 300;
 
 /**
  * POST /api/chat — the CEO talks to the company.

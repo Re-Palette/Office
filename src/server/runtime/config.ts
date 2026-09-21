@@ -104,6 +104,21 @@ function googleConfig(): GoogleConfig {
   };
 }
 
+/**
+ * Where the company's working state is written.
+ *
+ * A serverless filesystem is read-only apart from /tmp, so on Vercel the
+ * project directory is not writable and the default has to move. /tmp is not
+ * durable — it is per-instance and cleared between cold starts — so on Vercel
+ * this is a working buffer, not storage. Phase 3 (Supabase) is what makes
+ * state survive there; a normal server keeps everything in .friday as before.
+ */
+function dataDir(): string {
+  const explicit = str(process.env.FRIDAY_DATA_DIR);
+  if (explicit) return explicit;
+  return process.env.VERCEL ? "/tmp/friday" : ".friday";
+}
+
 function noteConfig(): NoteConfig {
   const authToken = str(process.env.NOTE_AUTH_TOKEN);
   const requested = str(process.env.NOTE_OUTPUT);
@@ -140,7 +155,7 @@ export function getConfig(): RuntimeConfig {
     maxSteps: int(process.env.FRIDAY_MAX_STEPS, 24),
     maxDelegations: int(process.env.FRIDAY_MAX_DELEGATIONS, 5),
     taskBudgetTokens: int(process.env.FRIDAY_TASK_BUDGET, 60_000),
-    dataDir: process.env.FRIDAY_DATA_DIR?.trim() || ".friday",
+    dataDir: dataDir(),
     google: googleConfig(),
     note: noteConfig(),
     webTools: bool(process.env.FRIDAY_WEB_TOOLS, true),

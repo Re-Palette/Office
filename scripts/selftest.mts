@@ -15,6 +15,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 process.env.ANTHROPIC_API_KEY = "sk-ant-selftest";
+// Pinned so the daily job is always past its hour: otherwise the scheduler
+// checks report "not_due" whenever the suite happens to run before 17:00 JST.
+process.env.NOTE_DAILY_DRAFT_AT = "00:00";
 process.env.FRIDAY_DATA_DIR = mkdtempSync(path.join(tmpdir(), "friday-selftest-"));
 
 const { runAgent, resumeRun, __setClientForTesting } = await import("../src/server/agents/runner");
