@@ -9,7 +9,8 @@ import { DEPARTMENT_TASK_DELTA } from "@/lib/company/tasks";
 import { PROJECTS } from "@/lib/company/projects";
 import { useCompany } from "@/lib/store";
 import { isActiveStatus } from "@/lib/status";
-import { Avatar, Chip, Panel, PanelHeader, Progress } from "@/components/ui/primitives";
+import { Avatar, Panel, PanelHeader, Progress } from "@/components/ui/primitives";
+import { DepartmentTag } from "@/components/company/department-tag";
 import { PageHeader } from "@/components/ui/page-header";
 
 export default function DepartmentsPage() {
@@ -59,12 +60,7 @@ export default function DepartmentsPage() {
 
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <span
-                      className="font-mono text-[9px] uppercase tracking-[0.2em]"
-                      style={{ color: accent }}
-                    >
-                      {dept.label}
-                    </span>
+                    <DepartmentTag department={dept.id} size="sm" />
                     <h3 className="mt-1 text-base font-semibold tracking-tight text-ink">
                       {dept.name}
                     </h3>
@@ -75,7 +71,7 @@ export default function DepartmentsPage() {
                   />
                 </div>
 
-                <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-ink-faint">
+                <p className="mt-2 line-clamp-2 text-2xs leading-relaxed text-ink-faint">
                   {dept.mandate}
                 </p>
 
@@ -83,8 +79,8 @@ export default function DepartmentsPage() {
                   <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-2">
                     <Avatar name={head.name} accent={head.accent} size="sm" status={head.status} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[11px] font-medium text-ink">{head.role}</div>
-                      <div className="truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                      <div className="truncate text-2xs font-medium text-ink">{head.role}</div>
+                      <div className="truncate font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                         Department head
                       </div>
                     </div>
@@ -106,7 +102,7 @@ export default function DepartmentsPage() {
                   <Progress value={performance} tone="accent" className="mt-1.5" />
                 </div>
 
-                <div className="mt-3 flex -space-x-1.5">
+                <div className="mt-3 flex -space-x-1">
                   {members.slice(0, 6).map((m) => (
                     <Avatar
                       key={m.id}
@@ -128,16 +124,11 @@ export default function DepartmentsPage() {
         <ul className="divide-y divide-hairline">
           {DEPARTMENTS.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center gap-2 px-5 py-3">
-              <span
-                className="w-28 shrink-0 font-mono text-[10px] uppercase tracking-[0.14em]"
-                style={{ color: DEPARTMENT_ACCENT[d.id] }}
-              >
-                {d.label}
-              </span>
+              <DepartmentTag department={d.id} className="w-32 shrink-0" />
               <ArrowRight className="h-3 w-3 shrink-0 text-ink-ghost" strokeWidth={2} />
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {d.interfaces.map((i) => (
-                  <Chip key={i}>{i}</Chip>
+                  <DepartmentTag key={i} department={i} size="xs" href={`/departments/${i}`} />
                 ))}
               </div>
             </li>

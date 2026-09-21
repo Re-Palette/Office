@@ -39,14 +39,14 @@ export default function HomePage() {
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="flex items-center gap-1.5 rounded-md bg-live/10 px-2 py-0.5">
               <LiveDot />
-              <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-live">
+              <span className="font-mono text-3xs uppercase tracking-[0.18em] text-live">
                 Live
               </span>
             </span>
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
+            <span className="font-mono text-3xs uppercase tracking-[0.18em] text-ink-faint">
               AI Company Operational Status
             </span>
-            <span className="num text-[10px] text-ink-ghost">
+            <span className="num text-3xs text-ink-ghost">
               {active} employees working right now
             </span>
           </div>
@@ -75,7 +75,7 @@ export default function HomePage() {
               action={
                 <Link
                   href="/command"
-                  className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+                  className="flex items-center gap-1 font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
                 >
                   Command
                   <ArrowUpRight className="h-3 w-3" strokeWidth={2} />
@@ -96,7 +96,7 @@ export default function HomePage() {
               title="CEO Inbox"
               hint={pending > 0 ? `${pending} awaiting decision` : "all clear"}
               action={
-                <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-warn">
+                <span className="font-mono text-3xs uppercase tracking-[0.14em] text-warn">
                   Human approval gate
                 </span>
               }
@@ -122,7 +122,7 @@ export default function HomePage() {
               action={
                 <Link
                   href="/projects"
-                  className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+                  className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
                 >
                   All
                 </Link>
@@ -138,7 +138,7 @@ export default function HomePage() {
               action={
                 <button
                   onClick={() => router.push("/activity")}
-                  className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+                  className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
                 >
                   All
                 </button>

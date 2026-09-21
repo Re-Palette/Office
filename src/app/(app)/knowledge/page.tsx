@@ -95,11 +95,11 @@ export default function KnowledgePage() {
                   </div>
                 </div>
 
-                <p className="mt-3 text-[11px] leading-relaxed text-ink-muted">{doc.excerpt}</p>
+                <p className="mt-3 text-2xs leading-relaxed text-ink-muted">{doc.excerpt}</p>
 
                 <div className="mt-3 flex flex-wrap gap-1">
                   {doc.tags.map((t) => (
-                    <span key={t} className="font-mono text-[9px] text-ink-ghost">
+                    <span key={t} className="font-mono text-3xs text-ink-ghost">
                       #{t}
                     </span>
                   ))}
@@ -112,12 +112,12 @@ export default function KnowledgePage() {
                       className="flex min-w-0 items-center gap-1.5"
                     >
                       <Avatar name={owner.name} accent={owner.accent} size="xs" />
-                      <span className="truncate text-[10px] text-ink-faint transition-colors hover:text-accent-soft">
+                      <span className="truncate text-3xs text-ink-faint transition-colors hover:text-accent-soft">
                         {owner.role}
                       </span>
                     </Link>
                   )}
-                  <span className="num ml-auto shrink-0 text-[10px] text-ink-ghost">
+                  <span className="num ml-auto shrink-0 text-3xs text-ink-ghost">
                     {formatRelative(doc.updatedAt, now)}
                   </span>
                 </div>
@@ -130,8 +130,8 @@ export default function KnowledgePage() {
       <Panel className="overflow-hidden">
         <PanelHeader title="Retrieval" hint="AI社員はここから検索します" />
         <p className="px-5 py-4 text-xs leading-relaxed text-ink-muted">
-          各AI社員は <code className="font-mono text-[11px] text-accent-soft">file_search</code> /
-          <code className="font-mono text-[11px] text-accent-soft"> database</code>{" "}
+          各AI社員は <code className="font-mono text-2xs text-accent-soft">file_search</code> /
+          <code className="font-mono text-2xs text-accent-soft"> database</code>{" "}
           ツール経由でこのKnowledge Centerを検索します。CEO Instructions と Brand Guidelines
           は、すべての社員のsystem promptへ自動的に注入されます。
         </p>

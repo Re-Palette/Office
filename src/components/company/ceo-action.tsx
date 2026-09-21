@@ -149,7 +149,7 @@ export function CeoActionRequired() {
             {actions.length}
           </span>
           <div className="pb-1">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-warn">
+            <div className="font-mono text-3xs uppercase tracking-[0.2em] text-warn">
               CEO Action Required
             </div>
             <p className="mt-0.5 text-xs text-ink-muted">
@@ -159,7 +159,7 @@ export function CeoActionRequired() {
         </div>
         <Link
           href="/command"
-          className="font-mono text-[10px] uppercase tracking-[0.14em] text-warn transition-opacity hover:opacity-80"
+          className="font-mono text-3xs uppercase tracking-[0.14em] text-warn transition-opacity hover:opacity-80"
         >
           Approval queue →
         </Link>
@@ -188,13 +188,13 @@ export function CeoActionRequired() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-warn">
+                    <span className="font-mono text-3xs uppercase tracking-[0.16em] text-warn">
                       {action.category}
                     </span>
                     <Chip className={PRIORITY_BADGE[action.priority].chip}>
                       {PRIORITY_BADGE[action.priority].label}
                     </Chip>
-                    <span className="num ml-auto text-[10px] text-ink-ghost">
+                    <span className="num ml-auto text-3xs text-ink-ghost">
                       {formatRelative(action.at, now)}
                     </span>
                   </div>
@@ -208,7 +208,7 @@ export function CeoActionRequired() {
 
                   <div className="mt-1 flex items-center gap-1.5">
                     {agent && <Avatar name={agent.name} accent={agent.accent} size="xs" />}
-                    <span className="truncate text-[10px] text-ink-faint">
+                    <span className="truncate text-3xs text-ink-faint">
                       {agent?.role ?? action.agentId}
                     </span>
                   </div>
@@ -242,7 +242,7 @@ export function CeoActionRequired() {
       {remaining > 0 && (
         <Link
           href="/command"
-          className="relative block border-t border-warn/15 bg-canvas/40 px-5 py-2.5 text-center font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint transition-colors hover:text-warn"
+          className="relative block border-t border-warn/15 bg-canvas/40 px-5 py-2.5 text-center font-mono text-3xs uppercase tracking-[0.14em] text-ink-faint transition-colors hover:text-warn"
         >
           +{remaining} more awaiting your decision
         </Link>
@@ -267,7 +267,7 @@ export function ApprovalQueue({ limit = 6 }: { limit?: number }) {
     <div>
       <div className="border-b border-hairline px-4 py-2.5">
         <span className="num text-sm font-semibold text-warn">{actions.length}</span>
-        <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+        <span className="ml-2 font-mono text-3xs uppercase tracking-[0.16em] text-ink-faint">
           items require your approval
         </span>
       </div>
@@ -276,13 +276,13 @@ export function ApprovalQueue({ limit = 6 }: { limit?: number }) {
           const agent = AGENTS_BY_ID[action.agentId];
           return (
             <li key={action.id} className="flex items-start gap-3 px-4 py-3">
-              <span className="num mt-0.5 w-4 shrink-0 text-[10px] text-ink-ghost">{i + 1}</span>
+              <span className="num mt-0.5 w-4 shrink-0 text-3xs text-ink-ghost">{i + 1}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <Chip className={PRIORITY_BADGE[action.priority].chip}>
                     {PRIORITY_BADGE[action.priority].label}
                   </Chip>
-                  <span className="num ml-auto text-[10px] text-ink-ghost">
+                  <span className="num ml-auto text-3xs text-ink-ghost">
                     {formatRelative(action.at, now)}
                   </span>
                 </div>
@@ -294,7 +294,7 @@ export function ApprovalQueue({ limit = 6 }: { limit?: number }) {
                 </Link>
                 <div className="mt-1 flex items-center gap-2">
                   {agent && (
-                    <span className="truncate text-[10px] text-ink-faint">{agent.role}</span>
+                    <span className="truncate text-3xs text-ink-faint">{agent.role}</span>
                   )}
                   <div className="ml-auto flex items-center gap-1">
                     <Button

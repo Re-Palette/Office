@@ -48,12 +48,12 @@ export function ScheduleStrip() {
               <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[11px] font-medium text-ink">{item.label}</div>
-              <div className="num text-[10px] text-ink-ghost">
+              <div className="truncate text-2xs font-medium text-ink">{item.label}</div>
+              <div className="num text-3xs text-ink-ghost">
                 {schedule[item.key]} · {formatCountdown(item.at, now)}
               </div>
             </div>
-            <span className="num shrink-0 text-[11px] text-ink-faint">
+            <span className="num shrink-0 text-2xs text-ink-faint">
               {formatTime(item.at)}
             </span>
           </Link>

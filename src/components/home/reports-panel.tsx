@@ -24,7 +24,7 @@ export function ReportsPanel() {
         action={
           <Link
             href="/reports"
-            className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+            className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
           >
             Report Center
           </Link>
@@ -40,7 +40,7 @@ export function ReportsPanel() {
               <li key={report.id} className="px-5 py-3">
                 <div className="flex items-center gap-2">
                   <Chip>{REPORT_TYPE_LABEL[report.type]}</Chip>
-                  <span className="num ml-auto text-[10px] text-ink-ghost">
+                  <span className="num ml-auto text-3xs text-ink-ghost">
                     {formatRelative(report.createdAt, now)}
                   </span>
                 </div>
@@ -52,7 +52,7 @@ export function ReportsPanel() {
                 </Link>
                 <div className="mt-1.5 flex items-center gap-2">
                   {author && <Avatar name={author.name} accent={author.accent} size="xs" />}
-                  <span className="truncate text-[10px] text-ink-faint">
+                  <span className="truncate text-3xs text-ink-faint">
                     {author?.role ?? report.createdBy}
                   </span>
                   <ReportStatusChip status={report.status} className="ml-auto" />

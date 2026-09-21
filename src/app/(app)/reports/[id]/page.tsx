@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
-import { DEPARTMENTS, DEPARTMENT_ACCENT } from "@/lib/company/departments";
+import { DEPARTMENTS } from "@/lib/company/departments";
 import { PROJECTS_BY_ID } from "@/lib/company/projects";
 import { useCompany } from "@/lib/store";
 import { formatDate, formatRelative, formatTime } from "@/lib/time";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 import { PdfLink, ReportStatusChip } from "@/components/reports/report-bits";
+import { DepartmentTag } from "@/components/company/department-tag";
 
 export default function ReportDetailPage() {
   const params = useParams<{ id: string }>();
@@ -97,7 +98,7 @@ export default function ReportDetailPage() {
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#A78BFA]/25 bg-[#A78BFA]/[0.06] px-4 py-2.5">
           <MessageSquareWarning className="h-3.5 w-3.5 shrink-0 text-[#A78BFA]" strokeWidth={1.75} />
           {previousVersion && (
-            <span className="text-[11px] text-ink-muted">
+            <span className="text-2xs text-ink-muted">
               これは修正依頼を受けて再作成された v{report.version} です。
               <Link
                 href={`/reports/${previousVersion.id}`}
@@ -108,7 +109,7 @@ export default function ReportDetailPage() {
             </span>
           )}
           {supersededBy && (
-            <span className="text-[11px] text-ink-muted">
+            <span className="text-2xs text-ink-muted">
               このレポートは修正版に置き換えられています。
               <Link
                 href={`/reports/${supersededBy.id}`}
@@ -179,7 +180,7 @@ export default function ReportDetailPage() {
                       {m.delta && (
                         <span
                           className={cn(
-                            "num text-[10px] font-medium",
+                            "num text-3xs font-medium",
                             m.positive === false ? "text-danger" : "text-live",
                           )}
                         >
@@ -203,15 +204,12 @@ export default function ReportDetailPage() {
                   return (
                     <li key={d.department} className="px-5 py-3.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Link
+                        <DepartmentTag
+                          department={d.department}
                           href={`/departments/${d.department}`}
-                          className="font-mono text-[10px] uppercase tracking-[0.16em] transition-opacity hover:opacity-80"
-                          style={{ color: DEPARTMENT_ACCENT[d.department] }}
-                        >
-                          {meta?.label ?? d.department}
-                        </Link>
+                        />
                         {d.metric && (
-                          <span className="num ml-auto text-[10px] text-ink-ghost">
+                          <span className="num ml-auto text-3xs text-ink-ghost">
                             {d.metric.label}: {d.metric.value}
                           </span>
                         )}
@@ -221,7 +219,7 @@ export default function ReportDetailPage() {
                         {d.points.map((p, i) => (
                           <li key={i} className="flex items-start gap-2">
                             <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-ink-ghost" />
-                            <span className="text-[11px] leading-relaxed text-ink-muted">{p}</span>
+                            <span className="text-2xs leading-relaxed text-ink-muted">{p}</span>
                           </li>
                         ))}
                       </ul>
@@ -252,7 +250,7 @@ export default function ReportDetailPage() {
                         </Link>
                         <span
                           className={cn(
-                            "num ml-auto text-[11px] font-semibold",
+                            "num ml-auto text-2xs font-semibold",
                             tone === "live"
                               ? "text-live"
                               : tone === "warn"
@@ -264,7 +262,7 @@ export default function ReportDetailPage() {
                         </span>
                       </div>
                       <Progress value={p.progress} tone={tone} className="mt-2" />
-                      <p className="mt-1.5 text-[11px] text-ink-faint">{p.note}</p>
+                      <p className="mt-1.5 text-2xs text-ink-faint">{p.note}</p>
                     </li>
                   );
                 })}
@@ -285,7 +283,7 @@ export default function ReportDetailPage() {
                       <div className="min-w-0 flex-1">
                         <Link
                           href={agent ? `/employees/${agent.id}` : "#"}
-                          className="text-[11px] font-semibold text-ink transition-colors hover:text-accent-soft"
+                          className="text-2xs font-semibold text-ink transition-colors hover:text-accent-soft"
                         >
                           {agent?.role ?? a.agentId}
                         </Link>
@@ -305,7 +303,7 @@ export default function ReportDetailPage() {
                 <PanelHeader title="Important Findings" />
                 <ul className="divide-y divide-hairline">
                   {c.findings.map((f, i) => (
-                    <li key={i} className="px-5 py-2.5 text-[11px] leading-relaxed text-ink-muted">
+                    <li key={i} className="px-5 py-2.5 text-2xs leading-relaxed text-ink-muted">
                       {f}
                     </li>
                   ))}
@@ -326,7 +324,7 @@ export default function ReportDetailPage() {
                         )}
                         strokeWidth={1.75}
                       />
-                      <p className="text-[11px] leading-relaxed text-ink-muted">{r.text}</p>
+                      <p className="text-2xs leading-relaxed text-ink-muted">{r.text}</p>
                     </li>
                   ))}
                 </ul>
@@ -340,7 +338,7 @@ export default function ReportDetailPage() {
             <ul className="divide-y divide-hairline">
               {c.decisions.map((d, i) => (
                 <li key={i} className="flex items-start gap-3 px-5 py-3">
-                  <span className="num shrink-0 text-[10px] text-accent-soft">
+                  <span className="num shrink-0 text-3xs text-accent-soft">
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span className="text-xs leading-relaxed text-ink-muted">{d}</span>
@@ -355,7 +353,7 @@ export default function ReportDetailPage() {
               <ul className="divide-y divide-hairline">
                 {c.nextActions.map((a, i) => (
                   <li key={i} className="flex items-start gap-3 px-5 py-3">
-                    <span className="num shrink-0 text-[10px] text-ink-ghost">
+                    <span className="num shrink-0 text-3xs text-ink-ghost">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <span className="text-xs leading-relaxed text-ink-muted">{a}</span>
@@ -375,7 +373,7 @@ export default function ReportDetailPage() {
               action={
                 <button
                   onClick={() => setPreview((v) => !v)}
-                  className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+                  className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
                 >
                   {preview ? "Hide preview" : "Show preview"}
                 </button>
@@ -408,13 +406,13 @@ export default function ReportDetailPage() {
                         href={report.pdfUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-lg bg-black/70 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-white backdrop-blur transition-colors hover:bg-black/85"
+                        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-lg bg-black/70 px-2 py-1 font-mono text-3xs uppercase tracking-[0.14em] text-white backdrop-blur transition-colors hover:bg-black/85"
                       >
                         <Maximize2 className="h-2.5 w-2.5" strokeWidth={2} />
                         Full
                       </a>
                     </div>
-                    <p className="mt-2 text-[10px] leading-relaxed text-ink-ghost">
+                    <p className="mt-2 text-3xs leading-relaxed text-ink-ghost">
                       プレビューはブラウザ内蔵のPDFビューアで表示しています。表示されない場合は
                       Open PDF から別タブで開いてください。
                     </p>
@@ -438,7 +436,7 @@ export default function ReportDetailPage() {
             <div className="px-5 py-4">
               {pending ? (
                 <>
-                  <p className="text-[11px] leading-relaxed text-ink-muted">
+                  <p className="text-2xs leading-relaxed text-ink-muted">
                     承認すると確定版として保存されます。修正依頼を出すと、
                     {author?.role ?? "担当AI社員"}が修正版を作成します。
                   </p>
@@ -516,18 +514,18 @@ export default function ReportDetailPage() {
                   <div className="flex items-center gap-2">
                     <ReportStatusChip status={report.status} />
                     {report.reviewedAt && (
-                      <span className="num text-[10px] text-ink-ghost">
+                      <span className="num text-3xs text-ink-ghost">
                         {formatRelative(report.reviewedAt, now)}
                       </span>
                     )}
                   </div>
                   {report.reviewedBy && (
-                    <p className="text-[11px] text-ink-muted">
+                    <p className="text-2xs text-ink-muted">
                       Reviewed by <span className="text-ink">{report.reviewedBy}</span>
                     </p>
                   )}
                   {report.reviewComment && (
-                    <p className="rounded-lg border border-hairline bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-ink-muted">
+                    <p className="rounded-lg border border-hairline bg-white/[0.02] px-3 py-2 text-2xs leading-relaxed text-ink-muted">
                       「{report.reviewComment}」
                     </p>
                   )}
@@ -550,10 +548,10 @@ export default function ReportDetailPage() {
                       className="flex items-center gap-2.5 px-5 py-2.5 transition-colors hover:bg-white/[0.025]"
                     >
                       <Avatar name={agent.name} accent={agent.accent} size="xs" status={agent.status} />
-                      <span className="flex-1 truncate text-[11px] text-ink-muted">
+                      <span className="flex-1 truncate text-2xs text-ink-muted">
                         {agent.role}
                       </span>
-                      <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                      <span className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                         {agent.department}
                       </span>
                     </Link>
@@ -572,10 +570,10 @@ export default function ReportDetailPage() {
             <dl className="divide-y divide-hairline">
               {c.appendix.map((row) => (
                 <div key={row.label} className="flex gap-4 px-5 py-2.5">
-                  <dt className="w-28 shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                  <dt className="w-28 shrink-0 font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                     {row.label}
                   </dt>
-                  <dd className="min-w-0 flex-1 text-[11px] text-ink-muted">{row.value}</dd>
+                  <dd className="min-w-0 flex-1 text-2xs text-ink-muted">{row.value}</dd>
                 </div>
               ))}
             </dl>

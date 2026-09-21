@@ -37,19 +37,19 @@ export function Recommendations({ onAsk }: { onAsk?: (headline: string) => void 
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-semibold text-ink">
+                    <span className="text-2xs font-semibold text-ink">
                       {agent?.role ?? rec.fromAgent}
                     </span>
-                    <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+                    <span className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
                       proposes
                     </span>
                     <span className="ml-auto flex items-center gap-1.5">
-                      <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                      <span className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                         confidence
                       </span>
                       <span
                         className={cn(
-                          "num text-[11px] font-semibold",
+                          "num text-2xs font-semibold",
                           rec.confidence >= 85
                             ? "text-live"
                             : rec.confidence >= 70
@@ -71,10 +71,10 @@ export function Recommendations({ onAsk }: { onAsk?: (headline: string) => void 
                   <dl className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1.5">
                     {rec.evidence.map((e) => (
                       <div key={e.label} className="flex items-baseline gap-1.5">
-                        <dt className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                        <dt className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                           {e.label}
                         </dt>
-                        <dd className="num text-[11px] font-medium text-ink-muted">{e.value}</dd>
+                        <dd className="num text-2xs font-medium text-ink-muted">{e.value}</dd>
                       </div>
                     ))}
                   </dl>

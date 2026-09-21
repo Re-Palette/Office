@@ -48,7 +48,7 @@ export function ActivityFeed({
               dense ? "py-2" : "py-2.5",
             )}
           >
-            <span className="num w-9 shrink-0 pt-px text-[10px] leading-5 text-ink-ghost">
+            <span className="num w-9 shrink-0 pt-px text-3xs leading-5 text-ink-ghost">
               {formatTime(event.at)}
             </span>
 
@@ -70,14 +70,14 @@ export function ActivityFeed({
                 <AgentTag id={event.agentId} />
                 <span
                   className={cn(
-                    "font-mono text-[9px] uppercase tracking-[0.16em]",
+                    "font-mono text-3xs uppercase tracking-[0.16em]",
                     ACTIVITY_META[event.kind]?.tone ?? "text-ink-ghost",
                   )}
                 >
                   {ACTIVITY_META[event.kind]?.label ?? event.kind}
                 </span>
                 {event.targetAgentId && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-ink-ghost">
+                  <span className="inline-flex items-center gap-1 text-3xs text-ink-ghost">
                     <ArrowRight className="h-2.5 w-2.5" strokeWidth={2} />
                     <AgentTag id={event.targetAgentId} muted />
                   </span>
@@ -85,7 +85,7 @@ export function ActivityFeed({
               </div>
               <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{event.message}</p>
               {event.detail && (
-                <p className="mt-0.5 truncate text-[11px] text-ink-ghost">{event.detail}</p>
+                <p className="mt-0.5 truncate text-2xs text-ink-ghost">{event.detail}</p>
               )}
             </div>
           </motion.li>
@@ -97,13 +97,13 @@ export function ActivityFeed({
 
 function AgentTag({ id, muted }: { id: string; muted?: boolean }) {
   const agent = AGENTS_BY_ID[id];
-  if (!agent) return <span className="text-[11px] text-ink-faint">{id}</span>;
+  if (!agent) return <span className="text-2xs text-ink-faint">{id}</span>;
 
   return (
     <Link
       href={`/employees/${agent.id}`}
       className={cn(
-        "text-[11px] font-medium transition-colors hover:text-accent-soft",
+        "text-2xs font-medium transition-colors hover:text-accent-soft",
         muted ? "text-ink-faint" : "text-ink",
       )}
     >
@@ -115,7 +115,7 @@ function AgentTag({ id, muted }: { id: string; muted?: boolean }) {
 export function ActivityAvatarRow({ events }: { events: ActivityEvent[] }) {
   const recent = Array.from(new Set(events.slice(0, 18).map((e) => e.agentId))).slice(0, 8);
   return (
-    <div className="flex -space-x-1.5">
+    <div className="flex -space-x-1">
       {recent.map((id) => {
         const agent = AGENTS_BY_ID[id];
         if (!agent) return null;

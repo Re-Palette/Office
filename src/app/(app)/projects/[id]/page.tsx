@@ -57,7 +57,7 @@ export default function ProjectDetailPage() {
         eyebrow={
           <div className="flex flex-wrap items-center gap-2">
             <Chip className={health.chip}>{health.label}</Chip>
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-ghost">
+            <span className="font-mono text-3xs uppercase tracking-[0.2em] text-ink-ghost">
               {project.codename}
             </span>
           </div>
@@ -106,7 +106,7 @@ export default function ProjectDetailPage() {
                   >
                     {m.label}
                   </span>
-                  <span className="num text-[10px] text-ink-ghost">{formatDay(m.due)}</span>
+                  <span className="num text-3xs text-ink-ghost">{formatDay(m.due)}</span>
                 </li>
               ))}
             </ol>
@@ -131,7 +131,7 @@ export default function ProjectDetailPage() {
                         <Chip className={PRIORITY_META[t.priority].chip}>
                           {PRIORITY_META[t.priority].label}
                         </Chip>
-                        <span className="num ml-auto text-[10px] text-ink-ghost">
+                        <span className="num ml-auto text-3xs text-ink-ghost">
                           {formatRelative(t.updatedAt, now)}
                         </span>
                       </div>
@@ -143,7 +143,7 @@ export default function ProjectDetailPage() {
                             className="flex items-center gap-1.5"
                           >
                             <Avatar name={assignee.name} accent={assignee.accent} size="xs" />
-                            <span className="text-[10px] text-ink-faint transition-colors hover:text-accent-soft">
+                            <span className="text-3xs text-ink-faint transition-colors hover:text-accent-soft">
                               {assignee.role}
                             </span>
                           </Link>
@@ -151,7 +151,7 @@ export default function ProjectDetailPage() {
                         {t.status !== "COMPLETED" && (
                           <>
                             <Progress value={t.progress} className="max-w-[160px] flex-1" />
-                            <span className="num text-[10px] text-ink-ghost">{t.progress}%</span>
+                            <span className="num text-3xs text-ink-ghost">{t.progress}%</span>
                           </>
                         )}
                       </div>
@@ -182,14 +182,14 @@ export default function ProjectDetailPage() {
                       <Avatar name={m.name} accent={m.accent} size="sm" status={m.status} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
-                          <span className="truncate text-[11px] font-medium text-ink">
+                          <span className="truncate text-2xs font-medium text-ink">
                             {m.role}
                           </span>
                           {m.id === project.owner && (
                             <Chip className="bg-accent/12 text-accent-soft">Owner</Chip>
                           )}
                         </div>
-                        <p className="truncate text-[10px] text-ink-ghost">
+                        <p className="truncate text-3xs text-ink-ghost">
                           {m.currentTask ?? m.mission}
                         </p>
                       </div>
@@ -217,8 +217,8 @@ export default function ProjectDetailPage() {
                         className="h-1.5 w-1.5 rounded-full"
                         style={{ background: DEPARTMENT_ACCENT[d] }}
                       />
-                      <span className="flex-1 text-[11px] text-ink-muted">{dept.name}</span>
-                      <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                      <span className="flex-1 text-2xs text-ink-muted">{dept.name}</span>
+                      <span className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                         {dept.label}
                       </span>
                     </Link>
@@ -238,7 +238,7 @@ export default function ProjectDetailPage() {
                 <Avatar name={owner.name} accent={owner.accent} size="md" status={owner.status} />
                 <div className="min-w-0">
                   <div className="text-[12px] font-semibold text-ink">{owner.role}</div>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                  <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
                     {owner.mission}
                   </p>
                 </div>
@@ -260,11 +260,11 @@ export default function ProjectDetailPage() {
                       href="/knowledge"
                       className="block px-5 py-3 transition-colors hover:bg-white/[0.025]"
                     >
-                      <div className="text-[11px] font-medium text-ink">{d.title}</div>
-                      <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-ink-faint">
+                      <div className="text-2xs font-medium text-ink">{d.title}</div>
+                      <p className="mt-0.5 line-clamp-2 text-3xs leading-relaxed text-ink-faint">
                         {d.excerpt}
                       </p>
-                      <span className="num mt-1 block text-[10px] text-ink-ghost">
+                      <span className="num mt-1 block text-3xs text-ink-ghost">
                         {formatRelative(d.updatedAt, now)}
                       </span>
                     </Link>
@@ -301,7 +301,7 @@ function Kpi({
       >
         {value}
       </div>
-      <div className="mt-1 text-[10px] text-ink-ghost">{sub}</div>
+      <div className="mt-1 text-3xs text-ink-ghost">{sub}</div>
     </div>
   );
 }

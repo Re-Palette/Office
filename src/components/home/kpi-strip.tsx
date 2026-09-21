@@ -63,7 +63,7 @@ export function KpiStrip() {
             </span>
             <span
               className={cn(
-                "text-[11px] font-medium",
+                "text-2xs font-medium",
                 item.alert ? "text-warn/80" : "text-ink-faint",
               )}
             >

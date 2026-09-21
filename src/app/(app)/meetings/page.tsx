@@ -58,7 +58,7 @@ export default function MeetingsPage() {
                   {formatCountdown(upcoming.at, now)}
                 </div>
               </div>
-              <div className="flex -space-x-1.5">
+              <div className="flex -space-x-1">
                 {executives.map((e) =>
                   e ? (
                     <Avatar
@@ -85,7 +85,7 @@ export default function MeetingsPage() {
                       className="flex items-center gap-2.5 rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-2 transition-colors hover:border-accent-line hover:bg-accent/[0.05]"
                     >
                       <Avatar name={e.name} accent={e.accent} size="xs" />
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-ink">
+                      <span className="min-w-0 flex-1 truncate text-2xs font-medium text-ink">
                         {e.role}
                       </span>
                       <StatusPill status={e.status} showLabel={false} />
@@ -140,7 +140,7 @@ export default function MeetingsPage() {
                       >
                         {agent?.role ?? report.agentId}
                       </Link>
-                      <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-ghost">
+                      <div className="font-mono text-3xs uppercase tracking-[0.18em] text-ink-ghost">
                         {report.area}
                       </div>
                     </div>
@@ -154,7 +154,7 @@ export default function MeetingsPage() {
                     {report.points.map((p, pi) => (
                       <li key={pi} className="flex items-start gap-2">
                         <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-ink-ghost" />
-                        <span className="text-[11px] leading-relaxed text-ink-muted">{p}</span>
+                        <span className="text-2xs leading-relaxed text-ink-muted">{p}</span>
                       </li>
                     ))}
                   </ul>
@@ -167,7 +167,7 @@ export default function MeetingsPage() {
                           {report.metric.value}
                         </span>
                         {report.metric.delta && (
-                          <span className="num text-[10px] text-live">{report.metric.delta}</span>
+                          <span className="num text-3xs text-live">{report.metric.delta}</span>
                         )}
                       </div>
                     </div>

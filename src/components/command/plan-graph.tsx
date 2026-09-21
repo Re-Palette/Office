@@ -8,6 +8,7 @@ import { DEPARTMENTS, DEPARTMENT_ACCENT } from "@/lib/company/departments";
 import type { CommandPlan, PlanStep } from "@/lib/engine/orchestrator";
 import { cn } from "@/lib/utils";
 import { Avatar, Chip } from "@/components/ui/primitives";
+import { DepartmentTag } from "@/components/company/department-tag";
 
 /**
  * Renders a plan as the chain the company actually follows:
@@ -45,7 +46,7 @@ export function PlanGraph({ plan }: { plan: CommandPlan }) {
         <span className="label mt-3 block">Success criteria</span>
         <ul className="mt-1 space-y-1">
           {plan.successCriteria.map((c) => (
-            <li key={c} className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-muted">
+            <li key={c} className="flex items-start gap-2 text-2xs leading-relaxed text-ink-muted">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
               {c}
             </li>
@@ -81,15 +82,9 @@ export function PlanGraph({ plan }: { plan: CommandPlan }) {
             >
               <div
                 className="flex items-center gap-2 border-b border-hairline px-3 py-2"
-                style={{ background: `${accent}0D` }}
+                style={{ background: `${accent}14` }}
               >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
-                <span
-                  className="font-mono text-[9px] uppercase tracking-[0.18em]"
-                  style={{ color: accent }}
-                >
-                  {meta?.label ?? group.dept}
-                </span>
+                <DepartmentTag department={group.dept} />
               </div>
 
               <ul className="divide-y divide-hairline">
@@ -107,17 +102,17 @@ export function PlanGraph({ plan }: { plan: CommandPlan }) {
                         {agent && <Avatar name={agent.name} accent={agent.accent} size="xs" />}
                         <Link
                           href={agent ? `/employees/${agent.id}` : "#"}
-                          className="truncate text-[11px] font-medium text-ink transition-colors hover:text-accent-soft"
+                          className="truncate text-2xs font-medium text-ink transition-colors hover:text-accent-soft"
                         >
                           {agent?.role ?? step.agentId}
                         </Link>
-                        <span className="num ml-auto shrink-0 text-[9px] text-ink-ghost">
+                        <span className="num ml-auto shrink-0 text-3xs text-ink-ghost">
                           ~{step.etaMinutes}m
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] leading-snug text-ink-muted">{step.action}</p>
+                      <p className="mt-1 text-2xs leading-snug text-ink-muted">{step.action}</p>
                       {step.detail && (
-                        <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-ink-ghost">
+                        <p className="mt-0.5 line-clamp-2 text-3xs leading-snug text-ink-ghost">
                           {step.detail}
                         </p>
                       )}
@@ -209,13 +204,13 @@ function Node({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[13px] font-semibold text-ink">{title}</span>
           {subtitle && (
-            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+            <span className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
               {subtitle}
             </span>
           )}
           <Chip className={cn("ml-auto", warn ? "bg-warn/12 text-warn" : "")}>{badge}</Chip>
         </div>
-        <p className={cn("mt-1 text-[11px] leading-relaxed", warn ? "text-warn/90" : "text-ink-muted")}>
+        <p className={cn("mt-1 text-2xs leading-relaxed", warn ? "text-warn/90" : "text-ink-muted")}>
           {body}
         </p>
       </div>
@@ -244,7 +239,7 @@ function Connector({ delay, label }: { delay: number; label?: string }) {
       <span className="h-5 w-px bg-gradient-to-b from-transparent via-accent/40 to-transparent" />
       <ArrowDown className="h-3 w-3 text-accent/60" strokeWidth={2} />
       {label && (
-        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+        <span className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
           {label}
         </span>
       )}

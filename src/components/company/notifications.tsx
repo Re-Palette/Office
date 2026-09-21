@@ -138,7 +138,7 @@ function NotificationRow({ notification: n }: { notification: NotificationItem }
           {demandsAction && (
             <span
               className={cn(
-                "rounded px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.14em]",
+                "rounded px-1.5 py-0.5 font-mono text-3xs uppercase tracking-[0.14em]",
                 level.chip,
               )}
             >
@@ -146,7 +146,7 @@ function NotificationRow({ notification: n }: { notification: NotificationItem }
             </span>
           )}
           {!n.read && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
-          <span className="num ml-auto text-[10px] text-ink-ghost">
+          <span className="num ml-auto text-3xs text-ink-ghost">
             {formatRelative(n.createdAt, now)}
           </span>
         </div>
@@ -157,13 +157,13 @@ function NotificationRow({ notification: n }: { notification: NotificationItem }
         >
           {n.title}
         </button>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-muted">{n.message}</p>
+        <p className="mt-0.5 text-2xs leading-relaxed text-ink-muted">{n.message}</p>
 
         <div className="mt-1.5 flex items-center gap-2">
           {agent && (
             <Link
               href={`/employees/${agent.id}`}
-              className="text-[10px] text-ink-ghost transition-colors hover:text-accent-soft"
+              className="text-3xs text-ink-ghost transition-colors hover:text-accent-soft"
             >
               {agent.role}
             </Link>
@@ -172,7 +172,7 @@ function NotificationRow({ notification: n }: { notification: NotificationItem }
             <button
               onClick={open}
               className={cn(
-                "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] transition-colors",
+                "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-3xs uppercase tracking-[0.14em] transition-colors",
                 demandsAction
                   ? "bg-warn/12 text-warn hover:bg-warn/20"
                   : "text-ink-faint hover:bg-white/5 hover:text-ink",
@@ -217,10 +217,10 @@ export function NotificationBanner() {
       >
         <div className="mx-auto flex w-full max-w-[1800px] items-center gap-3 px-4 py-2 lg:px-7 2xl:max-w-[2100px]">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={1.75} />
-          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-warn">
+          <span className="font-mono text-3xs uppercase tracking-[0.18em] text-warn">
             CEO action required
           </span>
-          <span className="min-w-0 flex-1 truncate text-[11px] text-ink-muted">
+          <span className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
             {urgent.message}
           </span>
           {urgent.href && (
@@ -239,7 +239,7 @@ export function NotificationBanner() {
           <button
             onClick={() => dismiss(urgent.id)}
             aria-label="Dismiss"
-            className="shrink-0 rounded-md px-1.5 py-1 text-[10px] text-ink-ghost transition-colors hover:bg-white/5 hover:text-ink-faint"
+            className="shrink-0 rounded-md px-1.5 py-1 text-3xs text-ink-ghost transition-colors hover:bg-white/5 hover:text-ink-faint"
           >
             ✕
           </button>

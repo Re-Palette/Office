@@ -51,7 +51,7 @@ export function RightPanel() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors",
+                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-mono text-3xs uppercase tracking-[0.14em] transition-colors",
                 tab === t.id
                   ? "bg-white/[0.06] text-ink"
                   : "text-ink-ghost hover:bg-white/[0.03] hover:text-ink-faint",
@@ -62,7 +62,7 @@ export function RightPanel() {
               {t.count !== undefined && t.count > 0 && (
                 <span
                   className={cn(
-                    "num rounded px-1 text-[9px]",
+                    "num rounded px-1 text-3xs",
                     tab === t.id ? "bg-warn/15 text-warn" : "bg-white/5 text-ink-faint",
                   )}
                 >
@@ -89,7 +89,7 @@ export function RightPanel() {
             <>
               <div className="border-b border-hairline px-4 py-2.5">
                 <span className="label">Live Activity</span>
-                <p className="mt-0.5 text-[10px] text-ink-ghost">
+                <p className="mt-0.5 text-3xs text-ink-ghost">
                   AI社員の行動をリアルタイムに記録しています
                 </p>
               </div>
@@ -100,7 +100,7 @@ export function RightPanel() {
             <>
               <div className="border-b border-hairline px-4 py-2.5">
                 <span className="label">Approval Queue</span>
-                <p className="mt-0.5 text-[10px] text-ink-ghost">
+                <p className="mt-0.5 text-3xs text-ink-ghost">
                   あなたが判断しないとAI会社が進まないものだけ
                 </p>
               </div>

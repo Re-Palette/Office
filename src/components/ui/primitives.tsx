@@ -85,8 +85,9 @@ type ButtonVariant = "primary" | "ghost" | "outline" | "danger" | "success" | "s
 type ButtonSize = "sm" | "md" | "xs";
 
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
+  // White on the bright accent only reaches 3.5:1 — the solid step clears AA.
   primary:
-    "bg-accent text-white hover:bg-accent-soft shadow-[0_6px_20px_-8px_rgba(108,124,255,0.8)]",
+    "bg-accent-solid text-white hover:bg-accent shadow-[0_6px_20px_-8px_rgba(90,103,232,0.85)]",
   success: "bg-live/12 text-live hover:bg-live/20 border border-live/25",
   danger: "bg-danger/10 text-danger hover:bg-danger/18 border border-danger/25",
   outline: "border border-hairline-strong text-ink-muted hover:bg-white/5 hover:text-ink",
@@ -137,9 +138,9 @@ export function Chip({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-medium",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-2 py-[3px] text-2xs font-medium",
         mono && "font-mono uppercase tracking-wider",
-        "bg-white/5 text-ink-muted",
+        "bg-white/[0.08] text-ink-muted",
         className,
       )}
     >
@@ -163,7 +164,7 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-medium",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-[3px] text-2xs font-semibold",
         meta.chip,
         className,
       )}
@@ -196,9 +197,9 @@ export function Avatar({
   className?: string;
 }) {
   const dims = {
-    xs: "h-5 w-5 text-[8px]",
-    sm: "h-7 w-7 text-[9px]",
-    md: "h-9 w-9 text-[10px]",
+    xs: "h-5 w-5 text-3xs",
+    sm: "h-7 w-7 text-3xs",
+    md: "h-9 w-9 text-2xs",
     lg: "h-12 w-12 text-xs",
     xl: "h-16 w-16 text-base",
   }[size];
@@ -210,13 +211,15 @@ export function Avatar({
           "inline-flex items-center justify-center rounded-lg font-mono font-semibold tracking-wider",
           dims,
         )}
+        // Identity comes from the plate and the ring; the initials stay in ink
+        // so they are legible whatever the hue's own contrast happens to be.
         style={{
-          background: `linear-gradient(140deg, ${accent}2E, ${accent}0F)`,
-          color: accent,
-          boxShadow: `inset 0 0 0 1px ${accent}33`,
+          background: `linear-gradient(140deg, ${accent}3D, ${accent}1A)`,
+          color: "#F4F5F7",
+          boxShadow: `inset 0 0 0 1px ${accent}66`,
         }}
       >
-        {initials(name)}
+        {size === "xs" ? initials(name).slice(0, 1) : initials(name)}
       </span>
       {status && (
         <span
@@ -362,15 +365,15 @@ export function FilterTabs<T extends string>({
           key={opt.id}
           onClick={() => onChange(opt.id)}
           className={cn(
-            "rounded-lg px-2.5 py-1 font-mono text-2xs uppercase tracking-wider transition-colors duration-150",
+            "rounded-lg px-2.5 py-1 font-mono text-2xs font-medium uppercase tracking-wider transition-colors duration-150",
             value === opt.id
-              ? "bg-accent/15 text-accent-soft"
-              : "text-ink-faint hover:bg-white/5 hover:text-ink-muted",
+              ? "bg-accent/20 text-accent-soft"
+              : "text-ink-faint hover:bg-white/[0.07] hover:text-ink",
           )}
         >
           {opt.label}
           {opt.count !== undefined && (
-            <span className="ml-1.5 text-ink-ghost">{opt.count}</span>
+            <span className="ml-1.5 text-ink-faint">{opt.count}</span>
           )}
         </button>
       ))}

@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { Chip, Panel, PanelHeader, Progress } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 import {
+  CHART_SERIES,
+  ChartLegend,
   DepartmentBars,
   RevenueChart,
   ThroughputChart,
@@ -26,7 +28,7 @@ export default function AnalyticsPage() {
   const active = agents.filter((a) => isActiveStatus(a.status)).length;
 
   const deptBars = DEPARTMENT_LOAD.map((d) => ({
-    label: DEPARTMENTS.find((x) => x.id === d.department)?.name.slice(0, 4) ?? d.department,
+    label: DEPARTMENTS.find((x) => x.id === d.department)?.name ?? d.department,
     value: d.completed,
     color: DEPARTMENT_ACCENT[d.department],
   }));
@@ -55,7 +57,7 @@ export default function AnalyticsPage() {
             </div>
             <div
               className={cn(
-                "num mt-1 text-[10px] font-medium",
+                "num mt-1 text-3xs font-medium",
                 k.positive ? "text-live" : "text-danger",
               )}
             >
@@ -67,14 +69,36 @@ export default function AnalyticsPage() {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel className="overflow-hidden">
-          <PanelHeader title="Task Throughput" hint="last 14 days" />
+          <PanelHeader
+            title="Task Throughput"
+            hint="last 14 days"
+            action={
+              <ChartLegend
+                items={[
+                  { label: "Completed", color: CHART_SERIES.completed },
+                  { label: "Created", color: CHART_SERIES.created },
+                ]}
+              />
+            }
+          />
           <div className="px-4 py-4">
             <ThroughputChart data={THROUGHPUT_14D} height={220} />
           </div>
         </Panel>
 
         <Panel className="overflow-hidden">
-          <PanelHeader title="Revenue vs Cost" hint="last 6 months" />
+          <PanelHeader
+            title="Revenue vs Cost"
+            hint="last 6 months"
+            action={
+              <ChartLegend
+                items={[
+                  { label: "Revenue", color: CHART_SERIES.revenue },
+                  { label: "Cost", color: CHART_SERIES.cost },
+                ]}
+              />
+            }
+          />
           <div className="px-4 py-4">
             <RevenueChart data={REVENUE_6M} height={220} />
           </div>
@@ -83,7 +107,7 @@ export default function AnalyticsPage() {
         <Panel className="overflow-hidden">
           <PanelHeader title="Completed by Department" hint="this week" />
           <div className="px-4 py-4">
-            <DepartmentBars data={deptBars} height={220} />
+            <DepartmentBars data={deptBars} height={240} layout="vertical" />
           </div>
         </Panel>
 
@@ -111,7 +135,7 @@ export default function AnalyticsPage() {
                     <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
                       {meta?.name ?? d.department}
                     </span>
-                    <span className="num text-[10px] text-ink-ghost">
+                    <span className="num text-3xs text-ink-ghost">
                       {d.active} active · {d.completed} done
                     </span>
                     <span
@@ -136,7 +160,7 @@ export default function AnalyticsPage() {
               );
             })}
           </ul>
-          <p className="border-t border-hairline px-5 py-3 text-[10px] leading-relaxed text-ink-ghost">
+          <p className="border-t border-hairline px-5 py-3 text-3xs leading-relaxed text-ink-ghost">
             88%を超える部署は、待機タスクが積み上がる前にリソース移動を検討してください。
           </p>
         </Panel>
@@ -147,7 +171,7 @@ export default function AnalyticsPage() {
             {FUNNEL.map((f) => (
               <li key={f.stage}>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[11px] text-ink-muted">{f.stage}</span>
+                  <span className="text-2xs text-ink-muted">{f.stage}</span>
                   <span className="num text-[12px] font-semibold text-ink">{f.value}</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">

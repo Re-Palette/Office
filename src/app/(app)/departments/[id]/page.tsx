@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
-import { DEPARTMENTS, DEPARTMENT_ACCENT } from "@/lib/company/departments";
+import { DEPARTMENTS } from "@/lib/company/departments";
 import { PROJECTS } from "@/lib/company/projects";
 import { useCompany } from "@/lib/store";
 import { isActiveStatus, PRIORITY_META, TASK_STATUS } from "@/lib/status";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 import { ActivityFeed } from "@/components/company/activity-feed";
+import { DepartmentTag } from "@/components/company/department-tag";
 import { ProjectList } from "@/components/company/project-list";
 
 export default function DepartmentDetailPage() {
@@ -34,7 +35,6 @@ export default function DepartmentDetailPage() {
   const dept = DEPARTMENTS.find((d) => d.id === id);
   if (!dept) notFound();
 
-  const accent = DEPARTMENT_ACCENT[dept.id];
   const head = AGENTS_BY_ID[dept.headAgentId];
   const members = agents.filter((a) => a.department === dept.id);
   const active = members.filter((a) => isActiveStatus(a.status));
@@ -55,14 +55,7 @@ export default function DepartmentDetailPage() {
       <PageHeader
         backHref="/departments"
         backLabel="Departments"
-        eyebrow={
-          <span
-            className="font-mono text-[10px] uppercase tracking-[0.22em]"
-            style={{ color: accent }}
-          >
-            {dept.label}
-          </span>
-        }
+        eyebrow={<DepartmentTag department={dept.id} size="md" />}
         title={dept.name}
         description={dept.mandate}
       />
@@ -88,13 +81,13 @@ export default function DepartmentDetailPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-ink">{head.role}</span>
-                    <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+                    <span className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
                       {head.name}
                     </span>
                     <StatusPill status={head.status} />
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">{head.mission}</p>
-                  <p className="mt-2 text-[11px] text-ink-muted">
+                  <p className="mt-1 text-2xs leading-relaxed text-ink-faint">{head.mission}</p>
+                  <p className="mt-2 text-2xs text-ink-muted">
                     <span className="label mr-2">Now</span>
                     {head.currentTask ?? "待機中"}
                   </p>
@@ -118,11 +111,11 @@ export default function DepartmentDetailPage() {
                         <span className="truncate text-[12px] font-semibold text-ink">
                           {m.role}
                         </span>
-                        <span className="truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                        <span className="truncate font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                           {m.name}
                         </span>
                       </div>
-                      <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                      <p className="mt-0.5 truncate text-2xs text-ink-muted">
                         {m.currentTask ?? m.mission}
                       </p>
                       <div className="mt-1.5">
@@ -155,12 +148,12 @@ export default function DepartmentDetailPage() {
                         {owner && (
                           <Link
                             href={`/employees/${owner.id}`}
-                            className="text-[10px] text-ink-faint transition-colors hover:text-accent-soft"
+                            className="text-3xs text-ink-faint transition-colors hover:text-accent-soft"
                           >
                             {owner.role}
                           </Link>
                         )}
-                        <span className="num ml-auto text-[10px] text-ink-ghost">
+                        <span className="num ml-auto text-3xs text-ink-ghost">
                           {formatRelative(t.updatedAt, now)}
                         </span>
                       </div>
@@ -190,23 +183,13 @@ export default function DepartmentDetailPage() {
                       href={`/departments/${i}`}
                       className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-white/[0.025]"
                     >
-                      <span
-                        className="font-mono text-[10px] uppercase tracking-[0.14em]"
-                        style={{ color: accent }}
-                      >
-                        {dept.label}
-                      </span>
+                      <DepartmentTag department={dept.id} />
                       <ArrowRight className="h-3 w-3 shrink-0 text-ink-ghost" strokeWidth={2} />
-                      <span
-                        className="font-mono text-[10px] uppercase tracking-[0.14em]"
-                        style={{ color: DEPARTMENT_ACCENT[i] }}
-                      >
-                        {target.label}
-                      </span>
+                      <DepartmentTag department={i} />
                       {targetHead && (
                         <span className="ml-auto flex items-center gap-1.5">
                           <Avatar name={targetHead.name} accent={targetHead.accent} size="xs" />
-                          <span className="text-[10px] text-ink-faint">{targetHead.role}</span>
+                          <span className="text-3xs text-ink-faint">{targetHead.role}</span>
                         </span>
                       )}
                     </Link>
@@ -254,7 +237,7 @@ function Kpi({
       >
         {value}
       </div>
-      <div className="mt-1 text-[10px] text-ink-ghost">{sub}</div>
+      <div className="mt-1 text-3xs text-ink-ghost">{sub}</div>
     </div>
   );
 }

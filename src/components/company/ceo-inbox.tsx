@@ -113,12 +113,12 @@ function ApprovalCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-warn">
+            <span className="font-mono text-3xs uppercase tracking-[0.16em] text-warn">
               {meta.label}
             </span>
             <Chip className={risk.chip}>{risk.label}</Chip>
             {approval.deadline && (
-              <span className="num text-[10px] text-ink-ghost">
+              <span className="num text-3xs text-ink-ghost">
                 {formatCountdown(approval.deadline, now)}
               </span>
             )}
@@ -128,10 +128,10 @@ function ApprovalCard({
 
           <div className="mt-1.5 flex items-center gap-1.5">
             {agent && <Avatar name={agent.name} accent={agent.accent} size="xs" />}
-            <span className="text-[11px] text-ink-faint">
+            <span className="text-2xs text-ink-faint">
               {agent?.role ?? approval.requestedBy}
             </span>
-            <span className="text-[10px] text-ink-ghost">
+            <span className="text-3xs text-ink-ghost">
               · {formatRelative(approval.requestedAt, now)}
             </span>
           </div>
@@ -152,17 +152,17 @@ function ApprovalCard({
                     className="mt-0.5 h-3 w-3 shrink-0 text-warn"
                     strokeWidth={1.75}
                   />
-                  <p className="text-[11px] leading-relaxed text-warn/90">{approval.impact}</p>
+                  <p className="text-2xs leading-relaxed text-warn/90">{approval.impact}</p>
                 </div>
 
                 {approval.payload && (
                   <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
                     {approval.payload.map((p) => (
                       <div key={p.label} className="min-w-0">
-                        <dt className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                        <dt className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                           {p.label}
                         </dt>
-                        <dd className="truncate text-[11px] text-ink-muted">{p.value}</dd>
+                        <dd className="truncate text-2xs text-ink-muted">{p.value}</dd>
                       </div>
                     ))}
                   </dl>

@@ -79,7 +79,7 @@ export function CeoChat({ className }: { className?: string }) {
                       <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink">
                         {m.text}
                       </p>
-                      <span className="num mt-1 block text-right text-[9px] text-ink-ghost">
+                      <span className="num mt-1 block text-right text-3xs text-ink-ghost">
                         {formatTime(m.at)}
                       </span>
                     </div>
@@ -98,15 +98,15 @@ export function CeoChat({ className }: { className?: string }) {
                   {agent && <Avatar name={agent.name} accent={agent.accent} size="sm" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-[11px] font-medium text-ink">
+                      <span className="text-2xs font-medium text-ink">
                         {agent?.role ?? "COO"}
                       </span>
-                      <span className="num text-[9px] text-ink-ghost">{formatTime(m.at)}</span>
+                      <span className="num text-3xs text-ink-ghost">{formatTime(m.at)}</span>
                     </div>
 
                     {m.routing && m.routing.length > 0 && (
                       <div className="mt-1.5 space-y-1 rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-2">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+                        <span className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
                           Routing
                         </span>
                         {m.routing.map((r, i) => {
@@ -117,10 +117,10 @@ export function CeoChat({ className }: { className?: string }) {
                                 className="h-1 w-1 shrink-0 rounded-full"
                                 style={{ background: ra?.accent ?? "#6B7079" }}
                               />
-                              <span className="shrink-0 text-[10px] font-medium text-ink-muted">
+                              <span className="shrink-0 text-3xs font-medium text-ink-muted">
                                 {ra?.role ?? r.agentId}
                               </span>
-                              <span className="truncate text-[10px] text-ink-ghost">{r.note}</span>
+                              <span className="truncate text-3xs text-ink-ghost">{r.note}</span>
                             </div>
                           );
                         })}
@@ -159,7 +159,7 @@ export function CeoChat({ className }: { className?: string }) {
             <CornerDownLeft className="h-3 w-3" strokeWidth={2} />
           </Button>
         </div>
-        <p className="mt-1.5 px-0.5 text-[10px] text-ink-ghost">
+        <p className="mt-1.5 px-0.5 text-3xs text-ink-ghost">
           CEO → COO → Departments → Employees の順で処理されます。
         </p>
       </form>
@@ -168,5 +168,5 @@ export function CeoChat({ className }: { className?: string }) {
 }
 
 export function ChatTimestamp({ at }: { at: number }) {
-  return <span className="num text-[9px] text-ink-ghost">{formatTime(at)}</span>;
+  return <span className="num text-3xs text-ink-ghost">{formatTime(at)}</span>;
 }

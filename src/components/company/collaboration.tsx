@@ -49,7 +49,7 @@ function FlowColumn({ flow, now }: { flow: CollaborationFlow; now: number }) {
           </div>
           <h4 className="mt-1.5 truncate text-[13px] font-medium text-ink">{flow.title}</h4>
         </div>
-        <span className="num shrink-0 text-[10px] text-ink-ghost">
+        <span className="num shrink-0 text-3xs text-ink-ghost">
           {done}/{flow.steps.length}
         </span>
       </div>
@@ -97,23 +97,23 @@ function FlowColumn({ flow, now }: { flow: CollaborationFlow; now: number }) {
                 <div className="flex items-center gap-2">
                   <Link
                     href={agent ? `/employees/${agent.id}` : "#"}
-                    className="truncate text-[11px] font-semibold text-ink transition-colors hover:text-accent-soft"
+                    className="truncate text-2xs font-semibold text-ink transition-colors hover:text-accent-soft"
                   >
                     {agent?.role ?? step.agentId}
                   </Link>
                   {step.state === "active" && (
                     <span className="flex items-center gap-1">
                       <span className="h-1 w-1 animate-pulse rounded-full bg-accent" />
-                      <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-accent-soft">
+                      <span className="font-mono text-3xs uppercase tracking-[0.16em] text-accent-soft">
                         in progress
                       </span>
                     </span>
                   )}
                   {step.state === "done" && step.at && (
-                    <span className="num text-[9px] text-ink-ghost">{formatTime(step.at)}</span>
+                    <span className="num text-3xs text-ink-ghost">{formatTime(step.at)}</span>
                   )}
                 </div>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-muted">{step.action}</p>
+                <p className="mt-0.5 text-2xs leading-relaxed text-ink-muted">{step.action}</p>
               </div>
             </li>
           );
@@ -121,7 +121,7 @@ function FlowColumn({ flow, now }: { flow: CollaborationFlow; now: number }) {
       </ol>
 
       <div className="mt-2 border-t border-hairline pt-2">
-        <span className="num text-[10px] text-ink-ghost">
+        <span className="num text-3xs text-ink-ghost">
           started {formatRelative(flow.startedAt, now)}
         </span>
       </div>

@@ -30,8 +30,9 @@
 }
 
 @layer components {
+  /* Section labels are read constantly — they get the legible faint step. */
   .label {
-    @apply font-mono text-2xs uppercase tracking-label text-ink-faint;
+    @apply font-mono text-2xs font-medium uppercase tracking-label text-ink-faint;
   }
 
   .panel {
@@ -56,14 +57,14 @@
 
   .scroll-slim {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
   .scroll-slim::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
   .scroll-slim::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.18);
     border-radius: 999px;
   }
   .scroll-slim::-webkit-scrollbar-track {

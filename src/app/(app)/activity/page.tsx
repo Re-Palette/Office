@@ -40,7 +40,7 @@ export default function ActivityPage() {
         eyebrow={
           <div className="flex items-center gap-2">
             <LiveDot />
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-live">
+            <span className="font-mono text-3xs uppercase tracking-[0.18em] text-live">
               {simulating ? "Streaming" : "Paused"}
             </span>
           </div>
@@ -79,14 +79,14 @@ export default function ActivityPage() {
             {kinds.map(([kind, count]) => (
               <li key={kind} className="flex items-center gap-3 px-5 py-2.5">
                 <span
-                  className={`font-mono text-[9px] uppercase tracking-[0.16em] ${
+                  className={`font-mono text-3xs uppercase tracking-[0.16em] ${
                     ACTIVITY_META[kind]?.tone ?? "text-ink-ghost"
                   }`}
                 >
                   {ACTIVITY_META[kind]?.label ?? kind}
                 </span>
-                <code className="truncate font-mono text-[10px] text-ink-ghost">{kind}</code>
-                <span className="num ml-auto text-[11px] text-ink-muted">{count}</span>
+                <code className="truncate font-mono text-3xs text-ink-ghost">{kind}</code>
+                <span className="num ml-auto text-2xs text-ink-muted">{count}</span>
               </li>
             ))}
           </ul>

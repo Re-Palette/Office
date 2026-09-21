@@ -37,7 +37,7 @@ export function LiveAgents() {
       {live ? (
         <div className="divide-y divide-hairline">
           {stubbed && (
-            <p className="bg-warn/[0.06] px-5 py-3 text-[11px] leading-relaxed text-warn/90">
+            <p className="bg-warn/[0.06] px-5 py-3 text-2xs leading-relaxed text-warn/90">
               FRIDAY_TEST_TRANSPORT=1 が有効です。ツール実行・会社データの更新・PDF生成・
               承認フローはすべて本物ですが、モデルの応答のみ定型のものに置き換わっています。
               実際にAI社員を働かせるには、この環境変数を外して ANTHROPIC_API_KEY を設定してください。
@@ -112,7 +112,7 @@ export function LiveAgents() {
               でキーを発行します。
             </Step>
             <Step n={2} title="プロジェクト直下に .env.local を作る">
-              <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-ink-muted">
+              <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
 {`ANTHROPIC_API_KEY=sk-ant-...
 
 # 任意
@@ -122,14 +122,14 @@ FRIDAY_CODE_EXECUTION=true`}
               </pre>
             </Step>
             <Step n={3} title="再起動する">
-              <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+              <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-2xs text-ink-muted">
                 npm run dev
               </code>{" "}
               を再起動すると、ここが LIVE に変わります。
             </Step>
           </ol>
 
-          <p className="rounded-lg border border-warn/25 bg-warn/[0.05] px-3 py-2 text-[11px] leading-relaxed text-warn/90">
+          <p className="rounded-lg border border-warn/25 bg-warn/[0.05] px-3 py-2 text-2xs leading-relaxed text-warn/90">
             LIVE では実際にAPIが課金されます。1回の指示で複数のAI社員が動くため、
             まずは小さな指示から試してください。
           </p>
@@ -174,12 +174,12 @@ function ToolRow({
       />
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-ink">{label}</span>
+          <span className="text-2xs font-medium text-ink">{label}</span>
           <Chip className={on ? "bg-live/10 text-live" : "bg-white/5 text-ink-ghost"}>
             {on ? "ON" : "OFF"}
           </Chip>
         </div>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">{detail}</p>
+        <p className="mt-0.5 text-3xs leading-relaxed text-ink-faint">{detail}</p>
       </div>
     </li>
   );
@@ -188,12 +188,12 @@ function ToolRow({
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent/12 text-[10px] text-accent-soft">
+      <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent/12 text-3xs text-accent-soft">
         {n}
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-[12px] font-medium text-ink">{title}</div>
-        <div className="mt-0.5 text-[11px] leading-relaxed text-ink-muted">{children}</div>
+        <div className="mt-0.5 text-2xs leading-relaxed text-ink-muted">{children}</div>
       </div>
     </li>
   );

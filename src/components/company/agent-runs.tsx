@@ -36,7 +36,7 @@ export function AgentRuns({ limit = 8 }: { limit?: number }) {
         live={runs.some((r) => r.status === "running")}
         hint={runtime?.model}
         action={
-          <span className="num text-[10px] text-ink-ghost">
+          <span className="num text-3xs text-ink-ghost">
             {usage.runs} runs · {(usage.inputTokens / 1000).toFixed(1)}k in ·{" "}
             {(usage.outputTokens / 1000).toFixed(1)}k out
           </span>
@@ -70,18 +70,18 @@ export function AgentRuns({ limit = 8 }: { limit?: number }) {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Link
                         href={agent ? `/employees/${agent.id}` : "#"}
-                        className="text-[11px] font-semibold text-ink transition-colors hover:text-accent-soft"
+                        className="text-2xs font-semibold text-ink transition-colors hover:text-accent-soft"
                       >
                         {agent?.role ?? run.agentId}
                       </Link>
                       <Chip className={status.chip}>{status.label}</Chip>
                       {run.parentRunId && <Chip>delegated</Chip>}
-                      <span className="num ml-auto text-[10px] text-ink-ghost">
+                      <span className="num ml-auto text-3xs text-ink-ghost">
                         {formatRelative(run.startedAt, now)}
                       </span>
                     </div>
 
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
+                    <p className="mt-1 line-clamp-2 text-2xs leading-relaxed text-ink-muted">
                       {run.objective}
                     </p>
 
@@ -91,25 +91,25 @@ export function AgentRuns({ limit = 8 }: { limit?: number }) {
                         {[...new Set(run.toolCalls.map((t) => t.name))].slice(0, 6).map((name) => (
                           <span
                             key={name}
-                            className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[9px] text-ink-faint"
+                            className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-3xs text-ink-faint"
                           >
                             {name}
                           </span>
                         ))}
-                        <span className="num ml-1 text-[9px] text-ink-ghost">
+                        <span className="num ml-1 text-3xs text-ink-ghost">
                           {run.toolCalls.length} calls · {run.steps} steps
                         </span>
                       </div>
                     )}
 
                     {run.error && (
-                      <p className="mt-1.5 rounded-md border border-danger/25 bg-danger/[0.06] px-2 py-1 text-[10px] leading-relaxed text-danger">
+                      <p className="mt-1.5 rounded-md border border-danger/25 bg-danger/[0.06] px-2 py-1 text-3xs leading-relaxed text-danger">
                         {run.error}
                       </p>
                     )}
 
                     {run.result && run.status === "completed" && (
-                      <p className="mt-1.5 line-clamp-3 rounded-md border border-hairline bg-white/[0.02] px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted">
+                      <p className="mt-1.5 line-clamp-3 rounded-md border border-hairline bg-white/[0.02] px-2 py-1.5 text-3xs leading-relaxed text-ink-muted">
                         {run.result}
                       </p>
                     )}

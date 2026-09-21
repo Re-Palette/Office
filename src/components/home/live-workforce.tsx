@@ -10,6 +10,7 @@ import { DEPARTMENTS } from "@/lib/company/departments";
 import { cn } from "@/lib/utils";
 import type { Agent, DepartmentId } from "@/lib/types";
 import { Avatar, FilterTabs, Panel, PanelHeader, StatusPill } from "@/components/ui/primitives";
+import { DepartmentTag } from "@/components/company/department-tag";
 
 type Scope = "active" | "executive" | "all";
 
@@ -53,7 +54,7 @@ export function LiveWorkforce() {
             />
             <Link
               href="/employees"
-              className="hidden items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft sm:flex"
+              className="hidden items-center gap-1 font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft sm:flex"
             >
               全員
               <ArrowUpRight className="h-3 w-3" strokeWidth={2} />
@@ -98,20 +99,19 @@ function WorkforceCard({ agent, index }: { agent: Agent; index: number }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span className="truncate text-[13px] font-semibold text-ink">{agent.role}</span>
-            <span className={cn("num shrink-0 text-[10px]", meta.text)}>
+            <span className={cn("num shrink-0 text-3xs", meta.text)}>
               {agent.lastActiveMinutesAgo === 0 ? "now" : `${agent.lastActiveMinutesAgo}m`}
             </span>
           </div>
 
-          <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
+          <p className="mt-1 line-clamp-2 text-2xs leading-relaxed text-ink-muted">
             {agent.currentTask ?? agent.mission}
           </p>
 
+          {/* Status and department — the codename was truncating to noise here. */}
           <div className="mt-2 flex items-center gap-2">
             <StatusPill status={agent.status} />
-            <span className="truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
-              {agent.name}
-            </span>
+            <DepartmentTag department={agent.department} size="xs" className="min-w-0" />
           </div>
         </div>
       </Link>
@@ -135,18 +135,15 @@ function DepartmentPulse() {
         <Link
           key={r.id}
           href={`/departments/${r.id}`}
-          className="group flex items-center gap-1.5 transition-opacity hover:opacity-100"
+          className="group flex items-center gap-1.5"
         >
+          <DepartmentTag department={r.id} size="xs" />
           <span
             className={cn(
-              "h-1.5 w-1.5 rounded-full",
-              r.active > 0 ? "bg-live" : "bg-ink-ghost",
+              "num text-3xs",
+              r.active > 0 ? "text-live" : "text-ink-faint",
             )}
-          />
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-faint transition-colors group-hover:text-ink">
-            {r.label}
-          </span>
-          <span className="num text-[10px] text-ink-ghost">
+          >
             {r.active}/{r.total}
           </span>
         </Link>

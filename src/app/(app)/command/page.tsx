@@ -42,7 +42,7 @@ export default function CommandPage() {
         eyebrow={
           <div className="flex items-center gap-2">
             <LiveDot />
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-live">
+            <span className="font-mono text-3xs uppercase tracking-[0.18em] text-live">
               Command Center
             </span>
           </div>
@@ -90,7 +90,7 @@ export default function CommandPage() {
                 key={s}
                 type="button"
                 onClick={() => setValue(s)}
-                className="rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-1.5 text-[11px] text-ink-faint transition-colors hover:border-accent-line hover:bg-accent/[0.06] hover:text-ink"
+                className="rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-1.5 text-2xs text-ink-faint transition-colors hover:border-accent-line hover:bg-accent/[0.06] hover:text-ink"
               >
                 {s}
               </button>
@@ -177,7 +177,7 @@ export default function CommandPage() {
                         {p.departments.map((d) => (
                           <Chip key={d}>{d}</Chip>
                         ))}
-                        <span className="num ml-auto text-[10px] text-ink-ghost">
+                        <span className="num ml-auto text-3xs text-ink-ghost">
                           {formatTime(Number(p.id.split("-")[1]) || Date.now())}
                         </span>
                       </div>

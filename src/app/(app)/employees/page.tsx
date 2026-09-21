@@ -18,6 +18,7 @@ import {
   StatusPill,
 } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
+import { DepartmentTag } from "@/components/company/department-tag";
 
 type Filter = "all" | "executive" | (typeof DEPARTMENTS)[number]["id"];
 
@@ -123,32 +124,32 @@ function EmployeeCard({ agent, index }: { agent: Agent; index: number }) {
           <Avatar name={agent.name} accent={agent.accent} size="lg" status={agent.status} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-ink">{agent.role}</div>
-            <div className="truncate font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+            <div className="truncate font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
               {agent.name}
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Chip>{agent.department}</Chip>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <DepartmentTag department={agent.department} size="xs" />
               {agent.seniority === "executive" && (
-                <Chip className="bg-accent/12 text-accent-soft">C-Suite</Chip>
+                <Chip className="bg-accent/20 text-accent-soft">C-Suite</Chip>
               )}
             </div>
           </div>
         </div>
 
-        <p className="mt-3 line-clamp-2 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-3 line-clamp-2 text-2xs leading-relaxed text-ink-faint">
           {agent.mission}
         </p>
 
         <div className="mt-3 rounded-lg border border-hairline bg-white/[0.02] px-2.5 py-2">
           <span className="label">Current task</span>
-          <p className={cn("mt-1 line-clamp-2 text-[11px] leading-snug", meta.text)}>
+          <p className={cn("mt-1 line-clamp-2 text-2xs leading-snug", meta.text)}>
             {agent.currentTask ?? "待機中"}
           </p>
         </div>
 
         <div className="mt-3 flex items-center justify-between">
           <StatusPill status={agent.status} />
-          <span className="num text-[10px] text-ink-ghost">
+          <span className="num text-3xs text-ink-ghost">
             {agent.lastActiveMinutesAgo === 0 ? "active now" : `${agent.lastActiveMinutesAgo}m ago`}
           </span>
         </div>
@@ -157,7 +158,7 @@ function EmployeeCard({ agent, index }: { agent: Agent; index: number }) {
           <div className="flex items-baseline justify-between">
             <span className="label">Performance</span>
             <div className="flex items-baseline gap-2">
-              <span className="num text-[11px] text-ink-ghost">
+              <span className="num text-2xs text-ink-ghost">
                 {agent.tasksCompleted.toLocaleString("en-US")} done
               </span>
               <span className="num text-xs font-semibold text-ink">{agent.performance}%</span>

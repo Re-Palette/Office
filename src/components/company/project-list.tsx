@@ -46,13 +46,13 @@ export function ProjectList({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-[13px] font-medium text-ink">{project.name}</span>
                   <Chip className={health.chip}>{health.label}</Chip>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
+                  <span className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
                     {project.codename}
                   </span>
                 </div>
 
                 {!dense && (
-                  <p className="mt-1 truncate text-[11px] text-ink-faint">{project.summary}</p>
+                  <p className="mt-1 truncate text-2xs text-ink-faint">{project.summary}</p>
                 )}
 
                 <div className="mt-2 flex items-center gap-3">
@@ -61,14 +61,14 @@ export function ProjectList({
                     tone={health.tone}
                     className="max-w-[220px] flex-1"
                   />
-                  <span className="num shrink-0 text-[11px] font-medium text-ink-muted">
+                  <span className="num shrink-0 text-2xs font-medium text-ink-muted">
                     {project.progress}%
                   </span>
                 </div>
               </div>
 
               <div className="hidden shrink-0 flex-col items-end gap-1.5 sm:flex">
-                <div className="flex -space-x-1.5">
+                <div className="flex -space-x-1">
                   {team.map((id) => {
                     const agent = AGENTS_BY_ID[id];
                     if (!agent) return null;
@@ -83,12 +83,12 @@ export function ProjectList({
                     );
                   })}
                   {project.agents.length > 5 && (
-                    <span className="num flex h-5 w-5 items-center justify-center rounded-lg bg-white/5 text-[8px] text-ink-faint ring-2 ring-surface">
+                    <span className="num flex h-5 w-5 items-center justify-center rounded-lg bg-white/5 text-3xs text-ink-faint ring-2 ring-surface">
                       +{project.agents.length - 5}
                     </span>
                   )}
                 </div>
-                <span className="num text-[10px] text-ink-ghost">
+                <span className="num text-3xs text-ink-ghost">
                   {formatCountdown(project.deadline, now)}
                 </span>
               </div>

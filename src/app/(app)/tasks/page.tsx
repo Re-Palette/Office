@@ -154,7 +154,7 @@ export default function TasksPage() {
               <Chip className={TASK_STATUS[column.status].chip}>
                 {TASK_STATUS[column.status].label}
               </Chip>
-              <span className="num text-[10px] text-ink-ghost">{column.items.length}</span>
+              <span className="num text-3xs text-ink-ghost">{column.items.length}</span>
             </div>
 
             <div className="space-y-2.5">
@@ -163,7 +163,7 @@ export default function TasksPage() {
               ))}
               {column.items.length === 0 && (
                 <div className="rounded-xl border border-dashed border-hairline px-3 py-6 text-center">
-                  <span className="text-[10px] text-ink-ghost">なし</span>
+                  <span className="text-3xs text-ink-ghost">なし</span>
                 </div>
               )}
             </div>
@@ -198,7 +198,7 @@ function TaskCard({ task, index }: { task: Task; index: number }) {
       </div>
 
       <h4 className="mt-2 text-[12px] font-medium leading-snug text-ink">{task.title}</h4>
-      <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-ink-faint">
+      <p className="mt-1 line-clamp-2 text-3xs leading-relaxed text-ink-faint">
         {task.description}
       </p>
 
@@ -206,16 +206,16 @@ function TaskCard({ task, index }: { task: Task; index: number }) {
         <div className="mt-2 rounded-lg border border-warn/25 bg-warn/[0.06] px-2.5 py-2">
           <div className="flex items-center gap-1.5">
             <ShieldAlert className="h-3 w-3 shrink-0 text-warn" strokeWidth={1.75} />
-            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-warn">
+            <span className="font-mono text-3xs uppercase tracking-[0.16em] text-warn">
               Waiting for CEO
             </span>
           </div>
           {task.blockedReason && (
-            <p className="mt-1 text-[10px] leading-relaxed text-warn/90">{task.blockedReason}</p>
+            <p className="mt-1 text-3xs leading-relaxed text-warn/90">{task.blockedReason}</p>
           )}
           <button
             onClick={() => router.push("/command")}
-            className="mt-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-warn transition-opacity hover:opacity-80"
+            className="mt-1.5 font-mono text-3xs uppercase tracking-[0.14em] text-warn transition-opacity hover:opacity-80"
           >
             Review task →
           </button>
@@ -225,7 +225,7 @@ function TaskCard({ task, index }: { task: Task; index: number }) {
       {task.status !== "COMPLETED" && (
         <div className="mt-2.5 flex items-center gap-2">
           <Progress value={task.progress} className="flex-1" />
-          <span className="num text-[10px] text-ink-ghost">{task.progress}%</span>
+          <span className="num text-3xs text-ink-ghost">{task.progress}%</span>
         </div>
       )}
 
@@ -233,12 +233,12 @@ function TaskCard({ task, index }: { task: Task; index: number }) {
         {agent && (
           <Link href={`/employees/${agent.id}`} className="flex min-w-0 items-center gap-1.5">
             <Avatar name={agent.name} accent={agent.accent} size="xs" status={agent.status} />
-            <span className="truncate text-[10px] text-ink-faint transition-colors hover:text-accent-soft">
+            <span className="truncate text-3xs text-ink-faint transition-colors hover:text-accent-soft">
               {agent.role}
             </span>
           </Link>
         )}
-        <span className="num ml-auto shrink-0 text-[10px] text-ink-ghost">
+        <span className="num ml-auto shrink-0 text-3xs text-ink-ghost">
           {formatRelative(task.updatedAt, now)}
         </span>
       </div>

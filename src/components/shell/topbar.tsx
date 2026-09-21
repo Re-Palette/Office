@@ -56,12 +56,12 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
           <span className="num text-sm font-semibold tracking-tight text-ink">
             {hydrated ? formatClock(now) : formatClock(now)}
           </span>
-          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-ghost">
+          <span className="font-mono text-3xs uppercase tracking-[0.18em] text-ink-ghost">
             JST
           </span>
         </div>
         <span className="h-3 w-px bg-hairline-strong" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
+        <span className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-faint">
           {formatDate(now)}
         </span>
       </div>
@@ -70,7 +70,7 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
 
       <div className="hidden items-center gap-2 md:flex">
         <LiveDot />
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-live">
+        <span className="font-mono text-3xs uppercase tracking-[0.14em] text-live">
           {active} AI employees active
         </span>
         <RuntimeBadge className="ml-1" />
@@ -92,7 +92,7 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
           />
           <kbd
             className={cn(
-              "pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded border border-hairline px-1.5 py-0.5 font-mono text-[9px] text-ink-ghost sm:flex",
+              "pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded border border-hairline px-1.5 py-0.5 font-mono text-3xs text-ink-ghost sm:flex",
               value && "text-accent-soft",
             )}
           >
@@ -130,7 +130,7 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
           {unread > 0 && (
             <span
               className={cn(
-                "num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold text-canvas",
+                "num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-3xs font-semibold text-canvas",
                 needsAction ? "bg-warn" : "bg-accent",
               )}
             >

@@ -39,14 +39,14 @@ export function PdfLink({
   if (variant === "url") {
     return (
       <div className={cn("flex items-center gap-2", className)}>
-        <code className="min-w-0 flex-1 truncate rounded-md border border-hairline bg-black/25 px-2 py-1.5 font-mono text-[10px] text-ink-faint">
+        <code className="min-w-0 flex-1 truncate rounded-md border border-hairline bg-black/25 px-2 py-1.5 font-mono text-3xs text-ink-faint">
           {report.pdfUrl}
         </code>
         <a
           href={report.pdfUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-accent/15 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-accent-soft transition-colors hover:bg-accent/25"
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-accent/15 px-2.5 py-1.5 font-mono text-3xs uppercase tracking-[0.14em] text-accent-soft transition-colors hover:bg-accent/25"
         >
           Open
           <ArrowUpRight className="h-3 w-3" strokeWidth={2} />
@@ -86,7 +86,7 @@ export function PdfLink({
       target="_blank"
       rel="noreferrer"
       className={cn(
-        "inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-accent-soft transition-colors hover:text-accent",
+        "inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-[0.14em] text-accent-soft transition-colors hover:text-accent",
         className,
       )}
     >

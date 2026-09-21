@@ -122,7 +122,7 @@ export default function ReportCenterPage() {
           <span className="text-xs text-warn/90">
             {pending.length === 1 ? "report is" : "reports are"} waiting for your review
           </span>
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-warn">
+          <span className="ml-auto font-mono text-3xs uppercase tracking-[0.14em] text-warn">
             Review →
           </span>
         </Link>
@@ -177,7 +177,7 @@ function ScheduleCell({ label, time, next }: { label: string; time: string; next
     <div className="bg-surface/70 px-5 py-4">
       <div className="label">{label}</div>
       <div className="num mt-1.5 text-lg font-semibold leading-none text-ink">{time}</div>
-      <div className="mt-1 text-[10px] text-ink-ghost">next in {next}</div>
+      <div className="mt-1 text-3xs text-ink-ghost">next in {next}</div>
     </div>
   );
 }
@@ -200,13 +200,13 @@ function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
             ].map((h) => (
               <th
                 key={h}
-                className="px-3 py-2.5 text-left font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost"
+                className="px-3 py-2.5 text-left font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost"
               >
                 {h}
               </th>
             ))}
             {/* Pinned: the confirmation state and PDF link must never scroll away. */}
-            <th className="sticky right-0 z-10 border-l border-hairline bg-surface px-3 py-2.5 text-left font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+            <th className="sticky right-0 z-10 border-l border-hairline bg-surface px-3 py-2.5 text-left font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
               Confirmation
             </th>
           </tr>
@@ -244,7 +244,7 @@ function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
                       className="flex items-center gap-1.5 transition-colors hover:text-accent-soft"
                     >
                       <Avatar name={author.name} accent={author.accent} size="xs" />
-                      <span className="text-[11px] text-ink-muted">{author.role}</span>
+                      <span className="text-2xs text-ink-muted">{author.role}</span>
                     </Link>
                   )}
                 </td>
@@ -252,26 +252,26 @@ function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
                   {project ? (
                     <Link
                       href={`/projects/${project.id}`}
-                      className="text-[11px] text-ink-muted transition-colors hover:text-accent-soft"
+                      className="text-2xs text-ink-muted transition-colors hover:text-accent-soft"
                     >
                       {project.name}
                     </Link>
                   ) : department ? (
                     <Link
                       href={`/departments/${department.id}`}
-                      className="text-[11px] text-ink-muted transition-colors hover:text-accent-soft"
+                      className="text-2xs text-ink-muted transition-colors hover:text-accent-soft"
                     >
                       {department.name}
                     </Link>
                   ) : (
-                    <span className="text-[11px] text-ink-ghost">全社</span>
+                    <span className="text-2xs text-ink-ghost">全社</span>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-3">
-                  <div className="num text-[11px] text-ink-muted">
+                  <div className="num text-2xs text-ink-muted">
                     {formatDay(report.createdAt)}
                   </div>
-                  <div className="num text-[10px] text-ink-ghost">
+                  <div className="num text-3xs text-ink-ghost">
                     {formatTime(report.createdAt)}
                   </div>
                 </td>
@@ -287,7 +287,7 @@ function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
                   <div className="flex flex-col gap-1.5">
                     <span
                       className={cn(
-                        "font-mono text-[10px] uppercase tracking-[0.14em]",
+                        "font-mono text-3xs uppercase tracking-[0.14em]",
                         needsReview
                           ? "text-warn"
                           : report.status === "APPROVED"
@@ -312,7 +312,7 @@ function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
                       {needsReview && (
                         <Link
                           href={`/reports/${report.id}`}
-                          className="rounded-md bg-warn/12 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-warn transition-colors hover:bg-warn/20"
+                          className="rounded-md bg-warn/12 px-2 py-0.5 font-mono text-3xs uppercase tracking-[0.14em] text-warn transition-colors hover:bg-warn/20"
                         >
                           Review
                         </Link>
@@ -407,7 +407,7 @@ function GenerateReport() {
           </Link>
         )}
 
-        <p className="w-full text-[11px] leading-relaxed text-ink-ghost">
+        <p className="w-full text-2xs leading-relaxed text-ink-ghost">
           生成されたレポートはPDF化され、CEO確認待ちとして Report Center と CEO Inbox
           に追加されます。通知も自動で送信されます。
         </p>

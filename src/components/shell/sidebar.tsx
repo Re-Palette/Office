@@ -35,7 +35,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               FRIDAY
             </span>
           </div>
-          <span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.3em] text-ink-ghost">
+          <span className="mt-1 block font-mono text-3xs uppercase tracking-[0.3em] text-ink-ghost">
             AI Company OS
           </span>
         </Link>
@@ -45,7 +45,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mx-4 mb-4 flex items-center gap-2 rounded-lg border border-live/20 bg-live/[0.06] px-2.5 py-2">
         <LiveDot />
         <span className="num text-xs font-semibold text-live">{activeCount}</span>
-        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-live/70">
+        <span className="font-mono text-3xs uppercase tracking-[0.18em] text-live/70">
           Active now
         </span>
       </div>
@@ -55,7 +55,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.label || `g${gi}`} className={cn(gi > 0 && "mt-5")}>
             {group.label && (
-              <div className="px-2 pb-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-ink-ghost">
+              <div className="px-2 pb-1.5 font-mono text-3xs uppercase tracking-[0.22em] text-ink-ghost">
                 {group.label}
               </div>
             )}
@@ -88,11 +88,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                         )}
                         strokeWidth={1.75}
                       />
-                      <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.13em]">
+                      <span className="flex-1 font-mono text-3xs uppercase tracking-[0.13em]">
                         {item.label}
                       </span>
                       {badge !== undefined && badge > 0 && (
-                        <span className="num text-[10px] text-ink-ghost">{badge}</span>
+                        <span className="num text-3xs text-ink-faint">{badge}</span>
                       )}
                     </Link>
                   </li>
@@ -106,13 +106,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {/* CEO profile */}
       <div className="border-t border-hairline p-3">
         <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.03] px-2.5 py-2.5">
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent/30 to-accent/5 font-mono text-[11px] font-semibold text-accent-soft ring-1 ring-inset ring-accent/25">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent/30 to-accent/5 font-mono text-2xs font-semibold text-accent-soft ring-1 ring-inset ring-accent/25">
             陽
             <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-live ring-2 ring-surface" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-medium text-ink">陽大</div>
-            <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+            <div className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
               CEO · Online
             </div>
           </div>

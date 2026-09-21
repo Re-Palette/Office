@@ -7,7 +7,7 @@ import { DEPARTMENT_TASK_DELTA, TASK_TOTALS } from "@/lib/company/tasks";
 import { THROUGHPUT_14D } from "@/lib/company/analytics";
 import { cn } from "@/lib/utils";
 import { Panel, PanelHeader, Progress } from "@/components/ui/primitives";
-import { DepartmentBars, ThroughputChart } from "@/components/ui/charts";
+import { CHART_SERIES, ChartLegend, DepartmentBars, ThroughputChart } from "@/components/ui/charts";
 
 export function TodayPerformance() {
   const tasks = useCompany((s) => s.tasks);
@@ -32,7 +32,7 @@ export function TodayPerformance() {
         action={
           <Link
             href="/analytics"
-            className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
+            className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost transition-colors hover:text-accent-soft"
           >
             Analytics
           </Link>
@@ -76,10 +76,10 @@ export function TodayPerformance() {
                       className="h-1.5 w-1.5 shrink-0 rounded-full"
                       style={{ background: DEPARTMENT_ACCENT[d.id] }}
                     />
-                    <span className="flex-1 truncate text-[11px] text-ink-muted transition-colors group-hover:text-ink">
+                    <span className="flex-1 truncate text-2xs text-ink-muted transition-colors group-hover:text-ink">
                       {d.name}
                     </span>
-                    <span className="num text-[11px] font-medium text-live">
+                    <span className="num text-2xs font-medium text-live">
                       +{DEPARTMENT_TASK_DELTA[d.id]}
                     </span>
                   </Link>
@@ -95,10 +95,13 @@ export function TodayPerformance() {
           <div className="mt-3">
             <ThroughputChart data={THROUGHPUT_14D} height={168} />
           </div>
-          <div className="mt-2 flex items-center gap-4">
-            <Legend color="#31D0A0" label="Completed" />
-            <Legend color="#6C7CFF" label="Created" />
-          </div>
+          <ChartLegend
+            className="mt-2"
+            items={[
+              { label: "Completed", color: CHART_SERIES.completed },
+              { label: "Created", color: CHART_SERIES.created },
+            ]}
+          />
 
           <div className="mt-5 border-t border-hairline pt-4">
             <span className="label">Tasks by department — today</span>
@@ -129,21 +132,10 @@ function Row({
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] text-ink-muted">{label}</span>
+        <span className="text-2xs text-ink-muted">{label}</span>
         <span className={cn("num text-sm font-semibold", text)}>{value}</span>
       </div>
       <Progress value={pct} tone={tone} className="mt-1.5" />
     </div>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-1.5 w-3 rounded-full" style={{ background: color }} />
-      <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">
-        {label}
-      </span>
-    </span>
   );
 }

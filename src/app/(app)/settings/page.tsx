@@ -96,7 +96,7 @@ export default function SettingsPage() {
               <div className="flex flex-wrap items-center gap-4 px-5 py-3.5">
                 <div className="min-w-0 flex-1">
                   <div className="text-[12px] font-medium text-ink">Weekly Board Meeting</div>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                  <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
                     各Directorが週次の結果を報告し、COOが統合
                   </p>
                 </div>
@@ -140,14 +140,14 @@ export default function SettingsPage() {
                       t.gated ? "bg-warn" : "bg-live",
                     )}
                   />
-                  <span className="flex-1 text-[11px] text-ink-muted">{t.label}</span>
+                  <span className="flex-1 text-2xs text-ink-muted">{t.label}</span>
                   <Chip className={t.gated ? "bg-warn/10 text-warn" : "bg-live/10 text-live"}>
                     {t.gated ? "Approval" : "Auto"}
                   </Chip>
                 </li>
               ))}
             </ul>
-            <p className="border-t border-hairline px-5 py-3 text-[10px] leading-relaxed text-ink-ghost">
+            <p className="border-t border-hairline px-5 py-3 text-3xs leading-relaxed text-ink-ghost">
               Approval 指定のツールは、AI社員が実行を要求してもCEOが承認するまで動きません。
             </p>
           </Panel>
@@ -157,7 +157,7 @@ export default function SettingsPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
               <div className="min-w-0">
                 <div className="text-[12px] font-medium text-ink">CEOの判断を保持</div>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
                   承認・却下・修正依頼と生成済みレポートはブラウザに保存され、リロード後も残ります。
                   Phase 3 で Supabase へ移行します。
                 </p>
@@ -173,7 +173,7 @@ export default function SettingsPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
               <div className="min-w-0">
                 <div className="text-[12px] font-medium text-ink">Live activity simulation</div>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
                   Claude API 接続前でも、AI社員の行動をリアルタイムに生成します。
                 </p>
               </div>
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                 <li key={p.id} className="flex items-center gap-3 px-5 py-3">
                   <span
                     className={cn(
-                      "num flex h-5 w-7 shrink-0 items-center justify-center rounded-md text-[10px]",
+                      "num flex h-5 w-7 shrink-0 items-center justify-center rounded-md text-3xs",
                       p.done ? "bg-live/12 text-live" : "bg-white/[0.04] text-ink-ghost",
                     )}
                   >
@@ -207,7 +207,7 @@ export default function SettingsPage() {
                   </span>
                   <span
                     className={cn(
-                      "flex-1 text-[11px]",
+                      "flex-1 text-2xs",
                       p.done ? "text-ink-muted" : "text-ink-faint",
                     )}
                   >
@@ -239,7 +239,7 @@ export default function SettingsPage() {
                   value={String(AGENTS.filter((a) => a.seniority === "specialist").length)}
                 />
               </div>
-              <pre className="scroll-slim overflow-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-ink-faint">
+              <pre className="scroll-slim overflow-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-3xs leading-relaxed text-ink-faint">
 {`{
   id, name, role, department,
   seniority, mission, systemPrompt,
@@ -248,7 +248,7 @@ export default function SettingsPage() {
   status, currentTask, memory[]
 }`}
               </pre>
-              <p className="text-[10px] leading-relaxed text-ink-ghost">
+              <p className="text-3xs leading-relaxed text-ink-ghost">
                 registry に1行追加すると、一覧・部署・フィルター・組織図・コマンドルーターへ自動的に反映されます。
               </p>
             </div>
@@ -262,7 +262,7 @@ export default function SettingsPage() {
               </span>
               <div>
                 <div className="text-[13px] font-medium text-ink">陽大</div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+                <div className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
                   CEO / Founder · 最終意思決定者
                 </div>
               </div>
@@ -289,7 +289,7 @@ function TimeRow({
     <div className="flex flex-wrap items-center gap-4 px-5 py-3.5">
       <div className="min-w-0 flex-1">
         <div className="text-[12px] font-medium text-ink">{label}</div>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{hint}</p>
+        <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">{hint}</p>
       </div>
       <input
         type="time"

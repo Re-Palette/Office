@@ -47,7 +47,7 @@ export default function LoginPage() {
       >
         <div className="mb-8 text-center">
           <div className="font-mono text-lg font-semibold tracking-[0.3em] text-ink">FRIDAY</div>
-          <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.34em] text-ink-ghost">
+          <div className="mt-2 font-mono text-3xs uppercase tracking-[0.34em] text-ink-ghost">
             AI Company OS
           </div>
         </div>
@@ -59,7 +59,7 @@ export default function LoginPage() {
             </span>
             <div>
               <div className="text-sm font-medium text-ink">Executive Access</div>
-              <div className="text-[11px] text-ink-faint">CEO 専用のコンソールです</div>
+              <div className="text-2xs text-ink-faint">CEO 専用のコンソールです</div>
             </div>
           </div>
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-medium text-ink">陽大</div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+                <div className="font-mono text-3xs uppercase tracking-[0.16em] text-ink-ghost">
                   CEO / Founder
                 </div>
               </div>
@@ -106,19 +106,19 @@ export default function LoginPage() {
                     phase >= i ? "bg-live" : "bg-ink-ghost"
                   }`}
                 />
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+                <span className="font-mono text-3xs uppercase tracking-[0.12em] text-ink-faint">
                   {p}
                 </span>
                 {phase === i && busy && (
-                  <span className="num text-[10px] text-accent-soft">…</span>
+                  <span className="num text-3xs text-accent-soft">…</span>
                 )}
-                {phase > i && <span className="text-[10px] text-live">ok</span>}
+                {phase > i && <span className="text-3xs text-live">ok</span>}
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-ink-ghost">
+        <div className="mt-5 flex items-center justify-center gap-2 text-3xs text-ink-ghost">
           <ShieldCheck className="h-3 w-3" strokeWidth={1.75} />
           すべての外部アクションはCEO承認を必要とします
         </div>
@@ -130,7 +130,7 @@ export default function LoginPage() {
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div>
-      <dt className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-ghost">{label}</dt>
+      <dt className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">{label}</dt>
       <dd
         className={`num mt-1 text-lg font-semibold leading-none ${
           accent ? "text-accent-soft" : "text-ink"

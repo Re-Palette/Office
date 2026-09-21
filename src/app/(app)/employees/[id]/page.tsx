@@ -143,7 +143,7 @@ export default function EmployeeDetailPage() {
             <div className="space-y-4 px-5 py-4">
               <Field label="Mission">{agent.mission}</Field>
               <Field label="Role prompt">
-                <pre className="scroll-slim mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-ink-muted">
+                <pre className="scroll-slim mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
                   {agent.systemPrompt}
                 </pre>
               </Field>
@@ -167,18 +167,18 @@ export default function EmployeeDetailPage() {
                       <Chip className={PRIORITY_META[task.priority].chip}>
                         {PRIORITY_META[task.priority].label}
                       </Chip>
-                      <span className="num ml-auto text-[10px] text-ink-ghost">
+                      <span className="num ml-auto text-3xs text-ink-ghost">
                         {formatRelative(task.updatedAt, now)}
                       </span>
                     </div>
                     <p className="mt-1.5 text-[13px] font-medium text-ink">{task.title}</p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                    <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
                       {task.description}
                     </p>
                     {task.status !== "COMPLETED" && (
                       <div className="mt-2 flex items-center gap-3">
                         <Progress value={task.progress} className="max-w-[200px] flex-1" />
-                        <span className="num text-[10px] text-ink-ghost">{task.progress}%</span>
+                        <span className="num text-3xs text-ink-ghost">{task.progress}%</span>
                       </div>
                     )}
                   </li>
@@ -214,7 +214,7 @@ export default function EmployeeDetailPage() {
               {agent.tools.map((t) => (
                 <li
                   key={t}
-                  className="bg-surface/60 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted"
+                  className="bg-surface/60 px-4 py-2.5 font-mono text-3xs uppercase tracking-[0.12em] text-ink-muted"
                 >
                   {t.replace(/_/g, " ")}
                 </li>
@@ -236,13 +236,13 @@ export default function EmployeeDetailPage() {
                       GATED.has(p) ? "bg-warn" : "bg-live",
                     )}
                   />
-                  <span className="text-[11px] text-ink-muted">
+                  <span className="text-2xs text-ink-muted">
                     {PERMISSION_LABEL[p] ?? p}
                   </span>
                 </li>
               ))}
             </ul>
-            <p className="border-t border-hairline px-5 py-2.5 text-[10px] leading-relaxed text-ink-ghost">
+            <p className="border-t border-hairline px-5 py-2.5 text-3xs leading-relaxed text-ink-ghost">
               オレンジの権限は、実行前に必ずCEO承認を必要とします。
             </p>
           </Panel>
@@ -259,7 +259,7 @@ export default function EmployeeDetailPage() {
                   {agent.reportsTo ? (
                     <AgentChipLink id={agent.reportsTo} />
                   ) : (
-                    <span className="text-[11px] text-ink-faint">CEO（陽大）直下</span>
+                    <span className="text-2xs text-ink-faint">CEO（陽大）直下</span>
                   )}
                 </div>
               </div>
@@ -298,8 +298,8 @@ export default function EmployeeDetailPage() {
                       href={`/projects/${p.id}`}
                       className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-white/[0.025]"
                     >
-                      <span className="flex-1 truncate text-[11px] text-ink-muted">{p.name}</span>
-                      <span className="num text-[10px] text-ink-ghost">{p.progress}%</span>
+                      <span className="flex-1 truncate text-2xs text-ink-muted">{p.name}</span>
+                      <span className="num text-3xs text-ink-ghost">{p.progress}%</span>
                     </Link>
                   </li>
                 ))}
@@ -315,7 +315,7 @@ export default function EmployeeDetailPage() {
             <ul className="divide-y divide-hairline">
               {agent.memory.map((m, i) => (
                 <li key={i} className="px-5 py-3">
-                  <p className="text-[11px] leading-relaxed text-ink-muted">{m}</p>
+                  <p className="text-2xs leading-relaxed text-ink-muted">{m}</p>
                 </li>
               ))}
             </ul>
@@ -326,7 +326,7 @@ export default function EmployeeDetailPage() {
             <div className="space-y-4 px-5 py-4">
               <div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[11px] text-ink-muted">Quality score</span>
+                  <span className="text-2xs text-ink-muted">Quality score</span>
                   <span className="num text-sm font-semibold text-ink">{agent.performance}%</span>
                 </div>
                 <Progress value={agent.performance} tone="live" className="mt-1.5" />
@@ -372,7 +372,7 @@ function AgentChipLink({ id }: { id: string }) {
       className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-white/[0.02] px-2 py-1 transition-colors hover:border-accent-line hover:bg-accent/[0.06]"
     >
       <Avatar name={agent.name} accent={agent.accent} size="xs" />
-      <span className="text-[10px] font-medium text-ink-muted">{agent.role}</span>
+      <span className="text-3xs font-medium text-ink-muted">{agent.role}</span>
     </Link>
   );
 }
