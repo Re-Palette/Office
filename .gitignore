@@ -6,6 +6,9 @@ build
 *.pem
 npm-debug.log*
 .env*.local
+
+# Live company state written by the agent runtime
+.friday/
 .vercel
 *.tsbuildinfo
 next-env.d.ts

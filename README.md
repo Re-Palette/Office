@@ -16,17 +16,18 @@ AI社員だけで構成された会社を、人間の社長1人が経営する�
 | 1 | 完全なUI / UX | ✅ 完了 |
 | 2 | Mock Agent System | ✅ 完了 |
 | 2.5 | Report · PDF · Approval · Notification Workflow | ✅ 完了 |
-| 3 | Database (Supabase) | 未着手 |
-| 4 | Claude API | 未着手 |
-| 5 | Real Tools | 未着手 |
-| 6 | Scheduled Reports (Cron) | 未着手 |
+| 4 | Claude API — AI社員が実際に動作する | ✅ 完了 |
+| 5 | Real Tools — Web検索 / コード実行 / 社内データ | ✅ 完了 |
+| 3 | Database (Supabase) | 未着手（現在はファイル永続化） |
+| 6 | Scheduled Reports (Cron) | 部分的 — 会社時計で発火 |
 | 7 | External Integrations | 未着手 |
 
-Phase 1–2.5 が完了しており、Claude API を接続していない状態でも
-「AI社員が実際に働いているように見える」状態まで作り込んであります。
+**APIキーを設定すると、AI社員は実際に働きます。**
+Claudeを呼び出し、Webを検索し、コードを実行し、社内データを読み書きし、
+互いに仕事を委譲し、承認が必要な場面では停止してCEOの判断を待ちます。
 
-さらに、AI社員の仕事が**正式なレポートになり、PDFとして出力され、CEOへ通知され、
-CEOの承認を経て次へ進む**という一連のWorkflowが実際に動作します。
+キーがない場合はデモ動作になり、従来どおりシミュレーションで画面が動きます。
+どちらの状態かは画面右上のバッジで常に分かります。
 
 ---
 
@@ -34,8 +35,24 @@ CEOの承認を経て次へ進む**という一連のWorkflowが実際に動作�
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+cp .env.example .env.local     # ANTHROPIC_API_KEY を設定すると LIVE になる
+npm run dev                    # http://localhost:3000
 ```
+
+### DEMO と LIVE
+
+| | DEMO | LIVE |
+| --- | --- | --- |
+| 条件 | キーなし | `ANTHROPIC_API_KEY` を設定 |
+| AI社員の活動 | シミュレーション | Claudeが実際に実行 |
+| ツール | なし | Web検索・Webページ取得・コード実行・社内データ |
+| レポート | 定型文から生成 | AI社員が実データを読んで執筆 |
+| 承認 | 画面上の状態遷移 | 実際に実行中のAI社員が停止し、承認で再開 |
+| 保存先 | ブラウザ | サーバー（`.friday/work-state.json`） |
+| 課金 | なし | あり |
+
+LIVE では実際に課金されます。1回の指示で複数のAI社員が動くため、
+まずは小さな指示から試してください。
 
 ログイン画面から `Enter Command Center` を押すとダッシュボードへ入ります
 （Phase 3 で Supabase Auth に差し替える前提のモック認証です）。
@@ -44,7 +61,11 @@ npm run dev        # http://localhost:3000
 npm run build      # 本番ビルド
 npm run lint       # ESLint
 npm run typecheck  # tsc --noEmit
+npm run selftest   # Workflow自己テスト（モデル呼び出しのみスタブ・課金なし）
 ```
+
+`npm run selftest` は、ループ・ツール実行・委譲・承認ゲート・レポート生成・PDF出力・
+承認後の再開までを実際に動かして検証します。
 
 ---
 
@@ -130,6 +151,65 @@ UIに特定のAI社員をハードコードしている箇所はありません�
 
 現在の構成: C-suite 8名（COO / CTO / CMO / CFO / CSO / Research Director /
 Creative Director / Executive Assistant）+ 各部署のスペシャリスト40名 = 48名。
+
+---
+
+## AI社員は実際に何をするのか
+
+LIVE では、CEOの指示は本物のAI社員の実行になります。
+
+```
+CEO「Re-Paletteの提携候補を調査して」
+   ↓
+COO が起動                         Claude API / claude-opus-5
+   ↓
+  log_progress                     ダッシュボードに進捗が出る
+  get_company_data                 実際のタスク・部署・分析データを読む
+  search_knowledge                 社内の記録を先に当たる
+   ↓
+  delegate → Research Director     本物のサブ実行が立ち上がる
+       ↓
+       web_search / web_fetch      実際にWebを検索し、ページを読む
+       get_company_data            社内データと突き合わせる
+       → 結果をCOOへ返す
+   ↓
+  request_ceo_approval             外部送信が必要 → ここで実行が止まる
+   ↓
+CEOが Approve
+   ↓
+止まっていたAI社員が、中断した地点から続きを実行する
+```
+
+### AI社員が使えるツール
+
+| ツール | 実体 |
+| --- | --- |
+| `web_search` / `web_fetch` | Anthropicのサーバーツール。実際にWebを検索し取得する |
+| `code_execution` | Anthropicのサーバーツール。実際にコードを実行して計算する |
+| `get_company_data` | タスク・プロジェクト・部署・AI社員・分析データの読み取り |
+| `search_knowledge` / `save_knowledge` | Knowledge Center の検索と追記 |
+| `create_task` / `complete_task` | 実際のタスクボードの更新 |
+| `delegate` | 他のAI社員を実行し、結果を受け取る |
+| `request_ceo_approval` | 実行を停止してCEOの判断を待つ |
+| `submit_report` | レポートを提出し、PDFを生成して確認待ちに入れる |
+
+Web検索の動的フィルタリングは内部でコード実行を使うため、
+同じAI社員に両方を渡すことはしません。担当領域に応じてどちらかを割り当てます。
+
+### 守らせていること
+
+- 外部送信・SNS公開・支出・契約・本番反映・外部サービス接続は、
+  system prompt で禁止したうえで `request_ceo_approval` を必ず経由させます。
+  承認前に実行する迂回路はツール側にも存在しません。
+- 会社の数値に触れる前に必ずデータを読ませます。読めなかった項目は
+  その旨を書くよう指示しています。
+- 1回の実行のステップ数と委譲数に上限を設けています（既定 24 / 5）。
+
+### 実行状態
+
+`Agent Runs` パネル（Command Center / Activity）に、どのAI社員が今動いていて、
+どのツールを何回呼び、何ステップ進み、いくらトークンを使ったかが出ます。
+失敗した実行はエラー内容をそのまま表示します。
 
 ---
 
@@ -256,6 +336,19 @@ report.generated / insight.found
 Claude API へ差し替える際は、イベントの供給元を `simulator.ts` から実際の
 Agent Orchestrator へ置き換えるだけで、UI側の変更は不要です。
 `orchestrator.ts` の `planCommand()` も同様に、Claudeの呼び出しへ置き換え可能な形にしてあります。
+
+---
+
+## 保存先
+
+LIVE では会社の作業状態（活動ログ・タスク・レポート・承認・通知・実行履歴）を
+サーバー側の `.friday/work-state.json` に保存します。
+一時ファイルへ書いてから rename する方式なので、途中で落ちても壊れません。
+書き込めない環境（読み取り専用のサーバーレスなど）ではプロセス内メモリのみで動作し、
+起動のたびにシード状態へ戻ります。
+
+Phase 3 で Supabase へ移行する際に差し替えるのは
+`src/server/runtime/store.ts` の関数群だけです。
 
 ---
 

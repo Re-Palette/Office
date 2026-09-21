@@ -8,6 +8,7 @@ import { ACTIVITY_META } from "@/lib/status";
 import { FilterTabs, LiveDot, Panel, PanelHeader } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 import { ActivityFeed, ActivityAvatarRow } from "@/components/company/activity-feed";
+import { AgentRuns } from "@/components/company/agent-runs";
 
 type Scope = "all" | "handoff" | "approval" | "insight" | (typeof DEPARTMENTS)[number]["id"];
 
@@ -69,6 +70,9 @@ export default function ActivityPage() {
           <ActivityFeed events={filtered} limit={120} />
         </Panel>
 
+        <div className="space-y-5">
+        <AgentRuns limit={5} />
+
         <Panel className="overflow-hidden">
           <PanelHeader title="Event Types" hint="Activity Engine" />
           <ul className="divide-y divide-hairline">
@@ -87,6 +91,7 @@ export default function ActivityPage() {
             ))}
           </ul>
         </Panel>
+        </div>
       </div>
     </div>
   );

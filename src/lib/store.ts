@@ -32,6 +32,18 @@ import {
 } from "@/lib/engine/simulator";
 import { SEED_NOW } from "@/lib/time";
 import {
+  askCompany,
+  fetchRuntimeStatus,
+  fetchServerState,
+  requestReport,
+  startCommand,
+  submitDecision,
+  type AgentRunSummary,
+  type RuntimeMode,
+  type RuntimeStatus,
+  type ServerState,
+} from "@/lib/live";
+import {
   clearDecisions,
   loadDecisions,
   saveDecisions,
@@ -75,11 +87,22 @@ export interface CompanyState {
 
   rightPanelOpen: boolean;
   panelTab: "activity" | "inbox" | "chat" | "alerts";
+
+  /** "live" once an API key is configured; "demo" runs the mock simulator. */
+  mode: RuntimeMode;
+  runtime?: RuntimeStatus;
+  runs: AgentRunSummary[];
+  apiUsage: { inputTokens: number; outputTokens: number; runs: number };
+  /** Surfaced in the UI when a live call fails, so setup problems are visible. */
+  liveError?: string;
   /** Banner the CEO dismissed; suppressed until a newer one arrives. */
   dismissedBannerId?: string;
 
   tick: () => void;
   startClock: () => void;
+  detectRuntime: () => Promise<void>;
+  syncFromServer: () => Promise<void>;
+  setLiveError: (message?: string) => void;
   /** Replays the CEO's stored decisions over the seed data on boot. */
   hydrateDecisions: () => void;
   resetDecisions: () => void;
@@ -212,7 +235,76 @@ export const useCompany = create<CompanyState>((set, get) => ({
   rightPanelOpen: true,
   panelTab: "activity",
 
+  mode: "unknown",
+  runs: [],
+  apiUsage: { inputTokens: 0, outputTokens: 0, runs: 0 },
+
   startClock: () => set({ hydrated: true }),
+
+  setLiveError: (message) => set({ liveError: message }),
+
+  /** Asks the server whether AI employees can actually run. */
+  detectRuntime: async () => {
+    try {
+      const status = await fetchRuntimeStatus();
+      set({ mode: status.mode, runtime: status });
+      if (status.mode === "live") {
+        // Real work drives the dashboard now; the mock stream would fight it,
+        // and the company clock moves onto real time so every timestamp agrees.
+        set({ simulating: false, now: Date.now() });
+        await get().syncFromServer();
+      }
+    } catch {
+      set({ mode: "demo" });
+    }
+  },
+
+  /**
+   * Pulls the company's real state. The workforce, tasks, reports, approvals
+   * and notifications all become whatever the AI employees have actually done.
+   */
+  syncFromServer: async () => {
+    if (get().mode !== "live") return;
+
+    let payload: ServerState;
+    try {
+      payload = await fetchServerState();
+    } catch (error) {
+      set({ liveError: (error as Error).message });
+      return;
+    }
+    if (payload.mode !== "live") {
+      set({ mode: "demo", simulating: true });
+      return;
+    }
+
+    set((s) => ({
+      activity: payload.activity ?? s.activity,
+      tasks: payload.tasks ?? s.tasks,
+      reports: payload.reports ?? s.reports,
+      approvals: payload.approvals ?? s.approvals,
+      notifications: payload.notifications ?? s.notifications,
+      runs: payload.runs ?? s.runs,
+      apiUsage: payload.usage ?? s.apiUsage,
+      agents: payload.agents
+        ? s.agents.map((agent) => {
+            const live = payload.agents![agent.id];
+            if (!live) return agent;
+            return {
+              ...agent,
+              status: live.status as Agent["status"],
+              currentTask: live.currentTask ?? agent.currentTask,
+              tasksCompleted: live.tasksCompleted,
+              lastActiveMinutesAgo: Math.max(
+                0,
+                Math.round((Date.now() - live.lastActiveAt) / 60_000),
+              ),
+            };
+          })
+        : s.agents,
+      liveError: undefined,
+    }));
+  },
 
   hydrateDecisions: () => {
     const stored = loadDecisions();
@@ -269,6 +361,15 @@ export const useCompany = create<CompanyState>((set, get) => ({
   setPanelTab: (tab) => set({ panelTab: tab }),
 
   decideApproval: (id, decision, comment) => {
+    if (
+      get().mode === "live" &&
+      (decision === "approved" || decision === "rejected" || decision === "revision_requested")
+    ) {
+      submitDecision({ approvalId: id, decision, comment })
+        .then(() => get().syncFromServer())
+        .catch((error) => set({ liveError: (error as Error).message }));
+    }
+
     set((s) => {
       const approval = s.approvals.find((a) => a.id === id);
       if (!approval) return s;
@@ -409,6 +510,16 @@ export const useCompany = create<CompanyState>((set, get) => ({
     const state = get();
     const now = state.now;
 
+    if (state.mode === "live") {
+      requestReport({
+        type: input.type,
+        projectId: input.projectId,
+        departmentId: input.departmentId,
+      })
+        .then(() => get().syncFromServer())
+        .catch((error) => set({ liveError: (error as Error).message }));
+    }
+
     const options: BuildReportOptions & { now: number } = {
       type: input.type,
       projectId: input.projectId,
@@ -470,6 +581,17 @@ export const useCompany = create<CompanyState>((set, get) => ({
           ? "rejected"
           : "revision_requested";
 
+    if (state.mode === "live") {
+      submitDecision({
+        reportId: id,
+        approvalId: report.approvalId,
+        decision: mapped as "approved" | "rejected" | "revision_requested",
+        comment,
+      })
+        .then(() => get().syncFromServer())
+        .catch((error) => set({ liveError: (error as Error).message }));
+    }
+
     // The report's approval record is the single source of truth for the
     // decision, so route through it and let it cascade.
     if (report.approvalId && state.approvals.some((a) => a.id === report.approvalId)) {
@@ -515,7 +637,8 @@ export const useCompany = create<CompanyState>((set, get) => ({
     }));
 
     // A revision request puts real work back on the authoring AI employee.
-    if (decision === "REVISION_REQUIRED") {
+    // In live mode the server already resumed that employee with the comment.
+    if (decision === "REVISION_REQUIRED" && get().mode !== "live") {
       const task = buildRevisionTask(report, comment ?? "", now);
       set((s) => ({
         tasks: [task, ...s.tasks],
@@ -634,6 +757,12 @@ export const useCompany = create<CompanyState>((set, get) => ({
     const plan = planCommand(input);
     const now = get().now;
 
+    if (get().mode === "live") {
+      startCommand(input)
+        .then(() => get().syncFromServer())
+        .catch((error) => set({ liveError: (error as Error).message }));
+    }
+
     const flow: CollaborationFlow = {
       id: `flow-${plan.id}`,
       title: plan.input,
@@ -688,6 +817,59 @@ export const useCompany = create<CompanyState>((set, get) => ({
 
   sendChat: (input) => {
     const state = get();
+
+    if (state.mode === "live") {
+      const ceoMessage: ChatMessage = {
+        id: nextId("msg"),
+        role: "ceo",
+        text: input,
+        at: state.now,
+      };
+      const pendingId = nextId("msg");
+      set((s) => ({
+        chat: [
+          ...s.chat,
+          ceoMessage,
+          {
+            id: pendingId,
+            role: "agent",
+            agentId: "coo",
+            text: "…",
+            at: state.now + 1,
+            routing: [{ agentId: "coo", note: "会社の状態を確認しています" }],
+          },
+        ],
+      }));
+
+      askCompany(input)
+        .then((result) => {
+          set((s) => ({
+            chat: s.chat.map((m) =>
+              m.id === pendingId
+                ? {
+                    ...m,
+                    agentId: result.agentId || "coo",
+                    text:
+                      result.text ||
+                      (result.error ? `エラー: ${result.error}` : "（返答がありませんでした）"),
+                    routing: undefined,
+                  }
+                : m,
+            ),
+          }));
+          void get().syncFromServer();
+        })
+        .catch((error) => {
+          set((s) => ({
+            liveError: (error as Error).message,
+            chat: s.chat.map((m) =>
+              m.id === pendingId ? { ...m, text: `エラー: ${(error as Error).message}` } : m,
+            ),
+          }));
+        });
+      return;
+    }
+
     const reply = replyToCeo(input, {
       agents: state.agents,
       tasks: state.tasks,
@@ -717,7 +899,8 @@ export const useCompany = create<CompanyState>((set, get) => ({
 /** Applies one simulator step to the store. Driven by the shell's interval. */
 export function advanceSimulation() {
   const state = useCompany.getState();
-  if (!state.simulating) return;
+  // Never invent activity while real AI employees are working.
+  if (state.mode === "live" || !state.simulating) return;
 
   // An AI employee may hit the edge of its authority and stop to ask.
   const openApprovals = state.approvals.filter(

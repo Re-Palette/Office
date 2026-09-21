@@ -14,6 +14,7 @@ import { PlanGraph } from "@/components/command/plan-graph";
 import { CollaborationFlows } from "@/components/company/collaboration";
 import { CeoInbox } from "@/components/company/ceo-inbox";
 import { ApprovalQueue } from "@/components/company/ceo-action";
+import { AgentRuns } from "@/components/company/agent-runs";
 
 export default function CommandPage() {
   const plans = useCompany((s) => s.plans);
@@ -123,6 +124,8 @@ export default function CommandPage() {
               </p>
             </Panel>
           )}
+
+          <AgentRuns limit={6} />
 
           <Panel className="overflow-hidden">
             <PanelHeader title="AI Collaboration" live hint="実行中の仕事の流れ" />

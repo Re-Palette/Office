@@ -8,6 +8,7 @@ import { isActiveStatus } from "@/lib/status";
 import { formatClock, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button, LiveDot } from "@/components/ui/primitives";
+import { RuntimeBadge } from "@/components/company/runtime-badge";
 
 export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
   const router = useRouter();
@@ -72,6 +73,7 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
         <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-live">
           {active} AI employees active
         </span>
+        <RuntimeBadge className="ml-1" />
       </div>
 
       {/* Command input */}

@@ -5,8 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { advanceSimulation, useCompany } from "@/lib/store";
 import { CLOCK_INTERVAL, SIM_INTERVAL } from "@/lib/engine/simulator";
+import { LIVE_POLL_INTERVAL } from "@/lib/live";
 import { readSession } from "@/lib/auth";
 import { NotificationBanner } from "@/components/company/notifications";
+import { LiveErrorBanner } from "@/components/company/runtime-badge";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { RightPanel } from "./right-panel";
@@ -20,6 +22,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const hydrateDecisions = useCompany((s) => s.hydrateDecisions);
   const tick = useCompany((s) => s.tick);
   const runScheduledReports = useCompany((s) => s.runScheduledReports);
+  const detectRuntime = useCompany((s) => s.detectRuntime);
+  const syncFromServer = useCompany((s) => s.syncFromServer);
+  const mode = useCompany((s) => s.mode);
 
   /* Auth gate — replaced by a Supabase session listener in Phase 3. */
   useEffect(() => {
@@ -44,11 +49,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(id);
   }, [hydrateDecisions, tick]);
 
-  /* Mock agent activity stream. */
+  /* Does this deployment have a key? Decides live vs. demo. */
+  useEffect(() => {
+    void detectRuntime();
+  }, [detectRuntime]);
+
+  /* Mock agent activity stream — only when nothing real is running. */
   useEffect(() => {
     const id = window.setInterval(advanceSimulation, SIM_INTERVAL);
     return () => window.clearInterval(id);
   }, []);
+
+  /* Live mode: follow what the AI employees are actually doing. */
+  useEffect(() => {
+    if (mode !== "live") return;
+    const id = window.setInterval(() => void syncFromServer(), LIVE_POLL_INTERVAL);
+    return () => window.clearInterval(id);
+  }, [mode, syncFromServer]);
 
   /* Scheduled jobs — the Daily Executive Report fires when the clock reaches it. */
   useEffect(() => {
@@ -105,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
+        <LiveErrorBanner />
         <NotificationBanner />
         <div className="flex min-h-0 flex-1">
           <main className="scroll-slim min-w-0 flex-1 overflow-y-auto">

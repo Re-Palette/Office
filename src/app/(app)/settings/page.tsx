@@ -8,14 +8,15 @@ import { useCompany } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button, Chip, Panel, PanelHeader } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
+import { LiveAgents } from "@/components/settings/live-agents";
 
 const PHASES = [
   { id: 1, label: "UI / UX", done: true },
   { id: 2, label: "Mock Agent System", done: true },
   { id: 2.5, label: "Reports · PDF · Approval · Notifications", done: true },
+  { id: 4, label: "Claude API — 実際のAI社員実行", done: true },
+  { id: 5, label: "Real Tools — Web / Code / 社内データ", done: true },
   { id: 3, label: "Database (Supabase)", done: false },
-  { id: 4, label: "Claude API", done: false },
-  { id: 5, label: "Real Tools", done: false },
   { id: 6, label: "Scheduled Reports", done: false },
   { id: 7, label: "External Integrations", done: false },
 ];
@@ -57,6 +58,8 @@ export default function SettingsPage() {
         title="Settings"
         description="AI会社の定期実行、権限ゲート、そして実装フェーズの状態。"
       />
+
+      <LiveAgents />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="space-y-5">
