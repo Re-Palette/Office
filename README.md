@@ -19,9 +19,9 @@ AI社員だけで構成された会社を、人間の社長1人が経営する�
 | 4 | Claude API — AI社員が実際に動作する | ✅ 完了 |
 | 5 | Real Tools — Web検索 / コード実行 / 社内データ | ✅ 完了 |
 | 3 | Database (Supabase) | 未着手（現在はファイル永続化） |
-| 6 | Scheduled Reports (Cron) | 部分的 — 会社時計で発火 |
+| 6 | Scheduled Reports (Cron) | 部分的 — 日次note記事はサーバー側で発火 |
 | 7 | External Integrations — Google (Gmail / Calendar) | ✅ 完了 |
-| 7 | External Integrations — note（記事の自動投稿） | ✅ 完了 |
+| 7 | External Integrations — note（記事の自動執筆・毎日17:00） | ✅ 完了 |
 | 7 | External Integrations — GitHub / Vercel / Instagram | 未着手 |
 
 **APIキーを設定すると、AI社員は実際に働きます。**
@@ -90,9 +90,10 @@ npm run selftest   # Workflow自己テスト（モデル呼び出しのみスタ
 | `/reports/[id]` | Report Detail | 本文・PDFプレビュー・CEO承認 |
 | `/reports/[id]/pdf` | PDF | 実際のPDFを返すRoute Handler |
 | `/meetings` | AI Board Meeting | 各Directorの週次報告とCOO統合 |
+| `/note` | Note Drafts | 毎日17:00に書かれたnote記事。コピー・.md出力・投稿管理 |
 | `/knowledge` | Knowledge Center | 会社の知識とCompany Memory |
 | `/analytics` | Analytics | 生産性・収益・AI稼働の分析 |
-| `/settings` | Settings | 定期実行・権限ゲート・Agent Registry |
+| `/settings` | Settings | 定期実行・外部連携・権限ゲート・Agent Registry |
 
 ---
 
@@ -260,7 +261,7 @@ CEOが Approve
 | `send_email` | 完成した文面をCEOの承認に回す。送信はサーバーが行う（Google連携時） |
 | `list_calendar_events` | Googleカレンダーの実際の空きを確認する（Google連携時） |
 | `create_calendar_event` | 予定を作成する。招待つきはCEO承認（Google連携時） |
-| `publish_note_article` | note に下書きを保存し、公開はCEO承認（note連携時） |
+| `write_note_article` | note記事を書き、文書ファイルとして保存する |
 
 Web検索の動的フィルタリングは内部でコード実行を使うため、
 同じAI社員に両方を渡すことはしません。担当領域に応じてどちらかを割り当てます。
@@ -343,61 +344,90 @@ Settings 画面の Integrations パネルに同じ手順があります。
 
 ## note への記事投稿
 
-Content AI が原稿を書き、CMO と Social Media AI が扱えます。
-`note` は Agent Registry の `tools` に追加した新しい capability なので、
-他のAI社員に持たせたければレジストリに1行足すだけです。
+Content AI が**毎日17:00（JST）に記事を1本**書きます。
+CMO と Social Media AI も同じツールを使えます。
+`note` は Agent Registry の capability なので、他のAI社員に持たせるなら
+レジストリに1行足すだけです。
 
-### 先に知っておくこと
+### なぜ「文書ファイル」なのか
 
-**note には記事投稿の公式APIがありません。** ここで使っているのは
-note のWebクライアントが叩いている非公開エンドポイントで、
-予告なく変わる可能性があります。実装はそれを前提にしています。
-
-- 触る範囲を最小にしています（下書き作成・更新・公開・セッション確認の4つだけ）
-- レスポンスを検証し、想定外の形が返ったら**そこで止めます**。
-  空の記事が静かに公開されることはありません
-- 1アカウントから、人間と同じ速度で、1件ずつしか叩きません
-
-自分のアカウントに自分の記事を投稿する用途に限ってください。
-
-### 流れ
+**note には記事投稿の公式APIがありません。**
+非公開エンドポイントを叩く方法は存在しますが、予告なく変わります。
+そこで既定では **note に一切接続せず**、書き上がった記事を
+Markdown の文書ファイルとして保存します。
 
 ```
-Content AI が原稿を書く
+毎日 17:00 JST
    ↓
-note に「下書き」として保存      ← 非公開。誰にも見えない
+Content AI が社内ナレッジと会社の実データを読んで記事を書く
    ↓
-CEO承認待ちで停止                ← 本文全文 + 下書きURL が承認カードに載る
-   ↓ CEO が承認
-サーバーが公開                    ← 公開URLがAI社員と活動ログに返る
+.friday/note-drafts/2026-09-22-<タイトル>.md   ← 文書ファイル
+   ↓
+NOTE DRAFTS 画面に「未投稿」として並ぶ + CEOに通知
+   ↓ CEO
+コピーして note に貼り付け → 「投稿済みにする」
 ```
 
-下書きを先に作るのは、カレンダーの「自分だけの予定」と同じ理由です。
-非公開で取り消せるものは止める必要がなく、そのぶんCEOは
-**note 上で実際のレイアウトのまま記事を読んでから**判断できます。
+壊れる部分がありません。AI社員の仕事は完成原稿までで、投稿はCEOのものです。
 
-却下した場合、記事は公開されず、下書きは note に残ります。消しません。
+### NOTE DRAFTS 画面
 
-### 設定
+サイドバーの **NOTE DRAFTS** に未投稿件数がバッジで出ます。
 
-```bash
-# note.com にログイン → 開発者ツール → Application → Cookies
-#   → note_gql_auth_token の値をコピー
-NOTE_AUTH_TOKEN=...
+- タイトルと本文を**別々にコピー**（note の入力欄が2つあるため）
+- `.md` をダウンロード
+- 「今すぐ書く」で17:00を待たずに生成
+- 投稿したら「投稿済みにする」。バッジが減ります
+
+ファイルの中身は、そのまま読めて、そのまま貼れる形です。
+
+```markdown
+# AIだけの会社を、ひとりで経営するということ
+
+## はじめに
+...
+
+---
+
+タグ: #AI #経営 #スタートアップ
+作成: Content AI / 更新: 2026-09-22 17:00 JST
 ```
 
-| `NOTE_PUBLISH_MODE` | 承認したときに起きること |
+### 17:00 に確実に動かす
+
+ジョブは**JSTの日付で重複排除**されます。何度叩いても1日1回しか実行されません。
+だから発火させる経路を複数持てます。
+
+| 経路 | いつ |
 | --- | --- |
-| `publish`（既定） | サーバーが note 上で公開する |
-| `draft_only` | 下書きのまま。公開はCEOが note 上で手動で行う |
+| `vercel.json` の cron | 08:00 UTC = 17:00 JST |
+| ダッシュボードのポーリング | 開いている間、3分ごと |
+| NOTE DRAFTS の「今すぐ書く」 | 手動 |
+| `curl localhost:3000/api/cron` | 手動 |
 
-`draft_only` は、非公開APIで公開操作までは行いたくない場合の設定です。
-AI社員が原稿を書き、note の下書きに入れるところまでは変わりません。
+時刻は `NOTE_DAILY_DRAFT_AT`（JST・既定 17:00）で変えられます。
+本番で `/api/cron` を保護するなら `CRON_SECRET` を設定してください
+（Vercel Cron は自動で付与します）。
+
+### note に直接保存したい場合
+
+`NOTE_OUTPUT` を切り替えると、note の非公開エンドポイントを使います。
+**予告なく変わる可能性があり、自分のアカウントに自分の記事を投稿する用途に限ってください。**
+
+| `NOTE_OUTPUT` | 動作 |
+| --- | --- |
+| `file`（既定） | 文書ファイルに保存。note には接続しない |
+| `draft` | note に非公開の下書きを保存。公開はCEOが note 上で手動 |
+| `publish` | CEOが承認したらサーバーが note に公開 |
+
+`file` 以外には `NOTE_AUTH_TOKEN`（note.com の `note_gql_auth_token` cookie）が要ります。
+実装は仕様変更を前提にしていて、想定外の応答が返ったらそこで止まります。
+空の記事が静かに公開されることはありません。
 
 ### Markdown の変換
 
-AI社員は Markdown で書き、note の editor は HTML を保存します。
-note が実際に描画する範囲だけを出力します。
+AI社員は Markdown で書きます。`draft` / `publish` では note の editor が保存する
+HTML に変換し、note が実際に描画する範囲だけを出力します。
 
 | 書いたもの | note |
 | --- | --- |
@@ -407,7 +437,7 @@ note が実際に描画する範囲だけを出力します。
 | `> ` | 引用 |
 | `**強調**` / `[文字](URL)` | 強調 / リンク |
 
-対応外の記法は段落に落とします。`**` がそのまま記事に出ることはありません。
+対応外の記法は段落に落とすので、`**` がそのまま記事に出ることはありません。
 
 ---
 
@@ -566,9 +596,24 @@ PDF URL が解決できるようになります。サーバーを再起動する
 
 ## 定期実行
 
-Daily Executive Report は、設定した時刻（既定 22:00 JST）を会社時計が越えた時点で
-自動生成されます。すぐに確認したい場合は Report Center の Generate から
-同じ処理を手動で実行できます。
+2種類あります。
+
+**Daily Executive Report** — 設定した時刻（既定 22:00 JST）を会社時計が越えた時点で
+生成されます。クライアント側の会社時計で動くため、ダッシュボードを開いている必要があります。
+すぐ確認したい場合は Report Center の Generate から手動実行できます。
+
+**日次note記事** — サーバー側のジョブです（既定 17:00 JST）。
+`/api/cron` が入口で、ジョブはJSTの日付で重複排除されるため、
+何度叩いても1日1回しか実行されません。だから発火経路を複数持てます。
+
+| 経路 | いつ |
+| --- | --- |
+| `vercel.json` の cron | 08:00 UTC = 17:00 JST |
+| ダッシュボードのポーリング | 開いている間、3分ごと |
+| NOTE DRAFTS の「今すぐ書く」 | 手動 |
+| `curl localhost:3000/api/cron` | 手動 |
+
+実行履歴は work state の `jobs` に残ります。
 
 ---
 

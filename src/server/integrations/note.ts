@@ -68,7 +68,7 @@ export class NoteApiError extends Error {
 
 function cookieHeader(): string {
   const { note } = getConfig();
-  if (!note.configured) {
+  if (!note.apiConfigured) {
     throw new NoteAuthError(
       "note連携が未設定です。NOTE_AUTH_TOKEN を設定してください（Settings に取得手順があります）。",
     );
@@ -288,5 +288,5 @@ export function noteClient(): NoteClient {
 }
 
 export function noteReady(): boolean {
-  return injected !== null || getConfig().note.configured;
+  return injected !== null || getConfig().note.apiConfigured;
 }

@@ -8,6 +8,7 @@ import {
   Home,
   Library,
   ListChecks,
+  PenLine,
   Settings,
   Terminal,
   Users,
@@ -18,7 +19,7 @@ export interface NavItem {
   label: string;
   icon: typeof Home;
   /** Key used to pull a live badge count out of the store. */
-  badge?: "approvals" | "tasks" | "agents";
+  badge?: "approvals" | "tasks" | "agents" | "noteDrafts";
 }
 
 export const NAV_PRIMARY: NavItem[] = [
@@ -37,6 +38,7 @@ export const NAV_INTEL: NavItem[] = [
   { href: "/activity", label: "ACTIVITY", icon: Activity },
   { href: "/reports", label: "REPORTS", icon: FileText },
   { href: "/meetings", label: "MEETINGS", icon: CalendarClock },
+  { href: "/note", label: "NOTE DRAFTS", icon: PenLine, badge: "noteDrafts" },
   { href: "/knowledge", label: "KNOWLEDGE", icon: Library },
   { href: "/analytics", label: "ANALYTICS", icon: BarChart3 },
 ];

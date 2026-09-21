@@ -28,6 +28,7 @@ export async function GET() {
       usage: state.usage,
       // Message history is intentionally omitted — it is large and internal.
       runs: state.runs.slice(0, 40).map(({ messages: _messages, ...run }) => run),
+      noteDrafts: state.noteDrafts ?? [],
     },
     { headers: { "Cache-Control": "no-store" } },
   );

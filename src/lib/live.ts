@@ -29,7 +29,8 @@ export interface RuntimeStatus {
   maxDelegations: number;
   /** Which external services are wired up. Never the credentials themselves. */
   integrations?: { google: boolean; note: boolean };
-  notePublishMode?: "publish" | "draft_only";
+  noteOutput?: "file" | "draft" | "publish";
+  noteDailyDraftAt?: string;
 }
 
 export interface AgentRunSummary {
@@ -62,6 +63,42 @@ export interface ServerState {
   >;
   runs?: AgentRunSummary[];
   usage?: { inputTokens: number; outputTokens: number; runs: number };
+  noteDrafts?: NoteDraftSummary[];
+}
+
+/** A note article waiting for the CEO to post it. */
+export interface NoteDraftSummary {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  rationale: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  status: "READY" | "POSTED" | "ARCHIVED";
+  file: string;
+  postedAt?: number;
+  noteUrl?: string;
+}
+
+export async function setNoteDraftStatus(
+  id: string,
+  status: NoteDraftSummary["status"],
+  noteUrl?: string,
+): Promise<void> {
+  await post("/api/note-drafts", { id, status, noteUrl });
+}
+
+/**
+ * How often the dashboard rings the company clock. Three minutes is frequent
+ * enough that a 17:00 job starts by 17:03, and rare enough to be invisible.
+ */
+export const JOB_POLL_INTERVAL = 180_000;
+
+/** Rings the company clock. Jobs are keyed by day, so extra calls are free. */
+export async function pokeScheduler(force = false): Promise<void> {
+  await fetch(`/api/cron${force ? "?force=1" : ""}`, { cache: "no-store" });
 }
 
 async function post<T>(url: string, body: unknown): Promise<T> {

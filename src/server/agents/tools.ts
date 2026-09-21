@@ -22,7 +22,6 @@ import {
   NoteApiError,
   NoteAuthError,
   noteClient,
-  noteReady,
 } from "@/server/integrations/note";
 
 /**
@@ -381,19 +380,19 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
 ];
 
 /**
- * note has no official write API, so the reach here is deliberately narrow:
- * one tool, which writes an article and asks. It never publishes on its own.
+ * note has no official write API, so by default nothing here reaches note at
+ * all: the article becomes a Markdown document the CEO reads and posts. That
+ * is the whole delivery path, and it cannot break when note changes.
  *
- * The draft is created on note straight away, because a note draft is private
- * — the same reasoning that lets a calendar block go through while an invite
- * does not. That gives the CEO the article rendered on note itself, at a real
- * URL, to read before deciding. Approval is what makes it public.
+ * With NOTE_OUTPUT set, the same tool instead goes through note's own internal
+ * endpoints — a private draft first, then the CEO's approval to publish.
+ * Either way the employee writes the article and stops there.
  */
 const NOTE_TOOLS: Anthropic.Tool[] = [
   {
-    name: "publish_note_article",
+    name: "write_note_article",
     description:
-      "Write an article to the company's note. Calling this does NOT publish: it saves a private draft on note and puts the full text in front of the CEO, pausing your run. The CEO approves, and only then does it go public. Write the finished article — Markdown headings, paragraphs, lists and links — not an outline. Check the brand voice with search_knowledge first.",
+      "Write a finished article for the company's note. This does NOT post it — it saves the article as a document for the CEO, who posts it. Write the complete piece, not an outline: Markdown headings, paragraphs, lists and links. Check the brand voice and what has already been published with search_knowledge first, and do not repeat an article that exists.",
     input_schema: {
       type: "object",
       properties: {
@@ -435,7 +434,7 @@ export function companyToolsFor(options: {
     if (equipped.includes("email")) tools.push(...EMAIL_TOOLS);
     if (equipped.includes("calendar")) tools.push(...CALENDAR_TOOLS);
   }
-  if (noteReady() && equipped.includes("note")) tools.push(...NOTE_TOOLS);
+  if (equipped.includes("note")) tools.push(...NOTE_TOOLS);
 
   return tools;
 }
@@ -824,7 +823,7 @@ export async function executeCompanyTool(
         };
       }
 
-      case "publish_note_article": {
+      case "write_note_article": {
         const title = String(input.title ?? "").trim();
         const body = String(input.body ?? "").trim();
         if (!title || !body) {
@@ -839,12 +838,58 @@ export async function executeCompanyTool(
         }
 
         const tags = asList(input.tags).map((t) => t.replace(/^#/, ""));
-        const html = markdownToNoteHtml(body);
-        const draftMode = getConfig().note.publishMode === "draft_only";
+        const rationale = String(input.reason ?? "").trim();
+        const { output } = getConfig().note;
 
+        // The default. Nothing leaves this machine, so there is nothing to
+        // gate: the article becomes a document and waits for the CEO.
+        if (output === "file") {
+          const { saveDraft } = await import("../note-drafts");
+          const saved = saveDraft({ title, body, tags, rationale, createdBy: ctx.agentId }, now);
+
+          mutate((s) => {
+            s.notifications = [
+              {
+                id: uid("ntf"),
+                kind: "task_completed",
+                level: "INFO",
+                title: `note下書き: ${title}`,
+                message: `${roleOf(ctx.agentId)} が記事を書きました。${rationale}`,
+                createdAt: now,
+                read: false,
+                recipient: "CEO",
+                agentId: ctx.agentId,
+                href: `/note/${saved.id}`,
+                actionLabel: "Read",
+              },
+              ...s.notifications,
+            ];
+            s.activity = [
+              {
+                id: uid("act"),
+                kind: "agent.completed",
+                agentId: ctx.agentId,
+                at: now,
+                message: "note記事の下書きを作成",
+                detail: title,
+                severity: "important",
+              },
+              ...s.activity,
+            ];
+          });
+
+          return {
+            content:
+              `下書きを保存しました（${saved.file}）。Dashboard の NOTE DRAFTS から読めます。` +
+              "note へ投稿するのはCEOです。自分で投稿しようとしないでください。",
+          };
+        }
+
+        // Opted in to note's undocumented endpoints. A note draft is private,
+        // so it is created now; the CEO approves what becomes public.
+        const html = markdownToNoteHtml(body);
         let draft;
         try {
-          // Private on note until the CEO says otherwise.
           draft = await noteClient().createDraft({ title, body: html, tags });
         } catch (error) {
           return noteFailure(error);
@@ -863,10 +908,11 @@ export async function executeCompanyTool(
           {
             kind: "social_post",
             title: `note記事の公開: ${title}`,
-            summary: String(input.reason ?? "") || `note に「${title}」を公開します。`,
-            impact: draftMode
-              ? `承認すると公開可能と記録されますが、公開操作はCEOが note 上で行います（NOTE_PUBLISH_MODE=draft_only）。下書き: ${draft.editUrl}`
-              : `承認するとこの記事が note 上で公開され、誰でも読める状態になります。下書きでの確認: ${draft.editUrl}`,
+            summary: rationale || `note に「${title}」を公開します。`,
+            impact:
+              output === "draft"
+                ? `承認すると公開可能と記録されますが、公開操作はCEOが note 上で行います（NOTE_OUTPUT=draft）。下書き: ${draft.editUrl}`
+                : `承認するとこの記事が note 上で公開され、誰でも読める状態になります。下書きでの確認: ${draft.editUrl}`,
             risk: "medium",
             priority: "high",
             payload: [
@@ -879,7 +925,7 @@ export async function executeCompanyTool(
           now,
         );
 
-        if (draftMode) {
+        if (output === "draft") {
           // Nothing is queued: the CEO publishes by hand on note.
           return {
             content:

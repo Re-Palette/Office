@@ -24,6 +24,8 @@ const { __setGoogleClientForTesting, buildMime } = await import(
 const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
   "../src/server/integrations/note"
 );
+const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
+const { runDailyNoteDraft } = await import("../src/server/scheduler");
 const { readState, mutate } = await import("../src/server/runtime/store");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
@@ -168,7 +170,7 @@ const script: Record<string, Block[][]> = {
       {
         type: "tool_use",
         id: "c2",
-        name: "publish_note_article",
+        name: "write_note_article",
         input: {
           title: "AIだけの会社を、ひとりで経営するということ",
           body: [
@@ -440,6 +442,7 @@ check("links and emphasis survive", html.includes('<a href="https://example.com"
 check("quotes survive", html.includes("<blockquote>引用</blockquote>"));
 check("nothing leaks as raw Markdown", !html.includes("**") && !html.includes("## "));
 
+// ── The default: the article becomes a document, and nothing touches note ──
 const writer = await runAgent({
   agentId: "content_ai",
   objective: "会社の考え方を note の記事にしてください。",
@@ -447,11 +450,62 @@ const writer = await runAgent({
   canReport: false,
 });
 
-check("writer halted at the publish gate", writer.status === "waiting_for_ceo", writer.status);
+check("the writer finishes without a gate", writer.status === "completed", writer.status);
+check("nothing reached note at all", note.drafts.length === 0 && note.published.length === 0);
+
+const saved = listDrafts()[0];
+check("the article was saved as a draft", Boolean(saved), saved?.title);
+check("it is waiting to be posted", saved?.status === "READY");
+check("the author is recorded", saved?.createdBy === "content_ai");
+check("tags came through", saved?.tags.length === 3);
+check("the file is named by its JST day", /^\d{4}-\d{2}-\d{2}-/.test(saved?.file ?? ""), saved?.file);
+
+const fileText = readDraftFile(saved!);
+check("the file leads with the title, ready to paste", fileText.startsWith(`# ${saved!.title}`));
+check("the body is in the file verbatim", fileText.includes("意思決定ではない"));
+check("the tags line is in the file", fileText.includes("#AI"));
+
+check(
+  "the CEO is told an article is waiting",
+  readState().notifications.some((n) => n.href === `/note/${saved!.id}` && !n.read),
+);
+
+// Writing the same title again on the same day refreshes it rather than piling up.
+cursor["Content AI"] = 0;
+await runAgent({
+  agentId: "content_ai",
+  objective: "同じ記事を書き直してください。",
+  canDelegate: false,
+  canReport: false,
+});
+check("rewriting the same day's article updates it", listDrafts().length === 1, `${listDrafts().length}`);
+
+// ── The daily job ──────────────────────────────────────────────────────────
+cursor["Content AI"] = 0;
+const job = await runDailyNoteDraft(true);
+check("the daily job writes an article", job.status === "ran", `${job.status}: ${job.detail}`);
+check("the job is recorded so it cannot run twice", readState().jobs.some((j) => j.id === "note-daily-draft" && j.ok));
+
+const repeat = await runDailyNoteDraft();
+check("a second run the same day is a no-op", repeat.status === "skipped", repeat.status);
+
+// ── Opting in to note's own endpoints ──────────────────────────────────────
+process.env.NOTE_OUTPUT = "publish";
+process.env.NOTE_AUTH_TOKEN = "selftest-cookie";
+cursor["Content AI"] = 0;
+
+const viaApi = await runAgent({
+  agentId: "content_ai",
+  objective: "note に直接下書きを作ってください。",
+  canDelegate: false,
+  canReport: false,
+});
+
+check("with NOTE_OUTPUT set, the run halts for approval", viaApi.status === "waiting_for_ceo", viaApi.status);
 check("a private draft was saved to note", note.drafts.length === 1);
 check("nothing was published before approval", note.published.length === 0);
 
-const articleApproval = readState().approvals.find((a) => a.id === writer.approvalId);
+const articleApproval = readState().approvals.find((a) => a.id === viaApi.approvalId);
 check(
   "the CEO gets the draft link to preview on note",
   articleApproval?.payload?.some((p) => p.label === "note draft" && p.value.includes("/edit")) ??
@@ -463,16 +517,16 @@ check(
     false,
 );
 
-const live = await resumeRun(writer.runId, "approved", "公開してください");
+const published = await resumeRun(viaApi.runId, "approved", "公開してください");
 check("the server published it after approval", note.published.length === 1);
 check("tags went out with it", note.published[0]?.tags.length === 3);
 check(
-  "the agent is told the public URL",
-  Boolean(live?.text) && readState().activity.some((e) => e.message.includes("note に公開")),
+  "the publish is on the record",
+  Boolean(published?.text) && readState().activity.some((e) => e.message.includes("note に公開")),
 );
 
-// A rejected article stays a draft — it is never published, never deleted.
-cursor["Content AI"] = 0; // replay the script for a second article
+// A rejected article stays a draft — never published, never deleted.
+cursor["Content AI"] = 0;
 const spiked = await runAgent({
   agentId: "content_ai",
   objective: "もう一本書いてください。",
@@ -482,6 +536,9 @@ const spiked = await runAgent({
 await resumeRun(spiked.runId, "rejected", "今回は出しません");
 check("a rejected article is never published", note.published.length === 1);
 check("but its draft is kept on note", note.drafts.length === 2);
+
+delete process.env.NOTE_OUTPUT;
+delete process.env.NOTE_AUTH_TOKEN;
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

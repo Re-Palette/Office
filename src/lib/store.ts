@@ -38,7 +38,10 @@ import {
   requestReport,
   startCommand,
   submitDecision,
+  pokeScheduler as pokeSchedulerApi,
+  setNoteDraftStatus,
   type AgentRunSummary,
+  type NoteDraftSummary,
   type RuntimeMode,
   type RuntimeStatus,
   type ServerState,
@@ -93,6 +96,8 @@ export interface CompanyState {
   runtime?: RuntimeStatus;
   runs: AgentRunSummary[];
   apiUsage: { inputTokens: number; outputTokens: number; runs: number };
+  /** note articles the AI wrote, waiting for the CEO to post them. */
+  noteDrafts: NoteDraftSummary[];
   /** Surfaced in the UI when a live call fails, so setup problems are visible. */
   liveError?: string;
   /** Banner the CEO dismissed; suppressed until a newer one arrives. */
@@ -131,6 +136,10 @@ export interface CompanyState {
   archiveReport: (id: string) => void;
   requestAgentApproval: (input: ApprovalRequestInput) => Approval;
   runScheduledReports: () => void;
+  /** Marks a note draft posted or set aside, and tells the server. */
+  setNoteDraft: (id: string, status: NoteDraftSummary["status"], noteUrl?: string) => void;
+  /** Asks the server to run anything due. Safe to call as often as we like. */
+  pokeScheduler: (force?: boolean) => Promise<void>;
 
   runCommand: (input: string) => CommandPlan;
   sendChat: (input: string) => void;
@@ -231,6 +240,7 @@ export const useCompany = create<CompanyState>((set, get) => ({
   plans: [],
   reports: SEED_REPORTS,
   schedule: DEFAULT_SCHEDULE,
+  noteDrafts: [],
 
   rightPanelOpen: true,
   panelTab: "activity",
@@ -286,6 +296,7 @@ export const useCompany = create<CompanyState>((set, get) => ({
       notifications: payload.notifications ?? s.notifications,
       runs: payload.runs ?? s.runs,
       apiUsage: payload.usage ?? s.apiUsage,
+      noteDrafts: payload.noteDrafts ?? s.noteDrafts,
       agents: payload.agents
         ? s.agents.map((agent) => {
             const live = payload.agents![agent.id];
@@ -751,6 +762,42 @@ export const useCompany = create<CompanyState>((set, get) => ({
 
     set({ lastDailyReportAt: state.now });
     get().generateReport({ type: "daily" });
+  },
+
+  /**
+   * The CEO has posted the article to note, or decided not to. Applied
+   * locally first so the list responds immediately, then sent to the server.
+   */
+  setNoteDraft: (id, status, noteUrl) => {
+    set((s) => ({
+      noteDrafts: s.noteDrafts.map((d) =>
+        d.id === id
+          ? {
+              ...d,
+              status,
+              updatedAt: Date.now(),
+              postedAt: status === "POSTED" ? Date.now() : d.postedAt,
+              noteUrl: noteUrl ?? d.noteUrl,
+            }
+          : d,
+      ),
+    }));
+
+    if (get().mode === "live") {
+      setNoteDraftStatus(id, status, noteUrl)
+        .then(() => get().syncFromServer())
+        .catch((error) => set({ liveError: (error as Error).message }));
+    }
+  },
+
+  pokeScheduler: async (force = false) => {
+    if (get().mode !== "live") return;
+    try {
+      await pokeSchedulerApi(force);
+      await get().syncFromServer();
+    } catch (error) {
+      set({ liveError: (error as Error).message });
+    }
   },
 
   runCommand: (input) => {

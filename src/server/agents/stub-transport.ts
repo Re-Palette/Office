@@ -21,7 +21,12 @@ interface Turn {
 let counter = 0;
 const id = () => `stub-${(counter++).toString(36)}`;
 
-function turnsFor(role: string, canDelegate: boolean, canReport: boolean): Turn[] {
+function turnsFor(
+  role: string,
+  canDelegate: boolean,
+  canReport: boolean,
+  canWriteNote: boolean,
+): Turn[] {
   const turns: Turn[] = [
     {
       content: [
@@ -71,6 +76,39 @@ function turnsFor(role: string, canDelegate: boolean, canReport: boolean): Turn[
             risk: "high",
             priority: "urgent",
             kind: "email",
+          },
+        },
+      ],
+    });
+  } else if (canWriteNote) {
+    // So the daily note job can be seen working before any tokens are spent.
+    turns.push({
+      content: [
+        {
+          type: "tool_use",
+          id: id(),
+          name: "write_note_article",
+          input: {
+            title: "AI社員が書いた記事のサンプル（stub transport）",
+            body: [
+              "## これはサンプルです",
+              "",
+              "FRIDAY_TEST_TRANSPORT=1 が有効なため、この記事はモデルではなく",
+              "定型のスタブが生成しています。保存・ファイル出力・毎日の実行・",
+              "ダッシュボードでの表示は、すべて本物と同じ経路を通っています。",
+              "",
+              "## 本物の記事にするには",
+              "",
+              "- `.env.local` から `FRIDAY_TEST_TRANSPORT` を外す",
+              "- `ANTHROPIC_API_KEY` を設定する",
+              "- `npm run dev` を再起動する",
+              "",
+              "以降、Content AI が会社の実際の動きを読んで記事を書きます。",
+              "投稿するのはCEOです。note には公式の投稿APIがないため、",
+              "この画面から本文をコピーして貼り付けてください。",
+            ].join("\n"),
+            tags: ["AI", "note", "stub"],
+            reason: "stub transport による動作確認用のサンプル記事です。",
           },
         },
       ],
@@ -125,13 +163,14 @@ export function createStubClient(): Anthropic {
         );
         const canDelegate = toolNames.has("delegate");
         const canReport = toolNames.has("submit_report");
+        const canWriteNote = toolNames.has("write_note_article");
 
         // The turn index is derived from the conversation itself, so every run
         // starts from the beginning of the script rather than sharing a cursor.
         const history = (params.messages ?? []) as { role?: string }[];
         const index = history.filter((m) => m.role === "assistant").length;
 
-        const turns = turnsFor(role, canDelegate, canReport);
+        const turns = turnsFor(role, canDelegate, canReport, canWriteNote);
         const content = turns[Math.min(index, turns.length - 1)].content;
         const hasToolUse = content.some((b) => b.type === "tool_use");
 

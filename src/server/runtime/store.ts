@@ -17,6 +17,8 @@ import type {
   Task,
 } from "@/lib/types";
 import type { PendingAction } from "@/server/agents/tools";
+import type { NoteDraft } from "@/server/note-drafts";
+import type { JobRun } from "@/server/scheduler";
 import { getConfig } from "./config";
 
 /**
@@ -80,6 +82,10 @@ export interface WorkState {
   notifications: NotificationItem[];
   agents: Record<string, AgentRuntimeState>;
   runs: AgentRun[];
+  /** note articles waiting for the CEO to post them. */
+  noteDrafts: NoteDraft[];
+  /** Recurring jobs, keyed by the JST day they last ran for. */
+  jobs: JobRun[];
   /** Cumulative spend so the CEO can see what the company costs to run. */
   usage: { inputTokens: number; outputTokens: number; runs: number };
   updatedAt: number;
@@ -140,6 +146,8 @@ function seedState(): WorkState {
       ]),
     ),
     runs: [],
+    noteDrafts: [],
+    jobs: [],
     usage: { inputTokens: 0, outputTokens: 0, runs: 0 },
     updatedAt: Date.now(),
   };
@@ -161,6 +169,10 @@ export function readState(): WorkState {
     const raw = readFileSync(filePath(), "utf8");
     const parsed = JSON.parse(raw) as WorkState;
     if (parsed?.version === 2 && parsed.initialised) {
+      // Fields added after a state file was written default rather than
+      // forcing a reseed — the CEO's work outlives a schema change.
+      parsed.noteDrafts ??= [];
+      parsed.jobs ??= [];
       cache = parsed;
       return cache;
     }

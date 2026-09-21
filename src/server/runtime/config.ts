@@ -27,16 +27,25 @@ export interface GoogleConfig {
 }
 
 /**
- * note publishes no official write API, so this is the session cookie from the
- * CEO's own browser. `publishMode` decides what approval actually does:
- * "publish" puts the article live, "draft_only" leaves it as a note draft for
- * the CEO to publish by hand — the lower-exposure setting.
+ * note publishes no official write API.
+ *
+ * `output` decides what an AI employee's finished article becomes:
+ *   "file"    — a Markdown document on disk and in the dashboard, which the
+ *               CEO posts. Nothing touches note, so nothing can break. Default.
+ *   "draft"   — saved to note as a private draft via its undocumented internal
+ *               endpoints; the CEO publishes it there.
+ *   "publish" — the same, and approval publishes it.
+ *
+ * The last two need `authToken`: the session cookie from the CEO's browser.
  */
 export interface NoteConfig {
-  configured: boolean;
+  output: "file" | "draft" | "publish";
+  /** True when the unofficial API is both asked for and credentialed. */
+  apiConfigured: boolean;
   authToken: string;
   session: string;
-  publishMode: "publish" | "draft_only";
+  /** What time the daily article job runs, as JST "HH:MM". */
+  dailyDraftAt: string;
 }
 
 export interface RuntimeConfig {
@@ -97,11 +106,19 @@ function googleConfig(): GoogleConfig {
 
 function noteConfig(): NoteConfig {
   const authToken = str(process.env.NOTE_AUTH_TOKEN);
+  const requested = str(process.env.NOTE_OUTPUT);
+  const wantsApi = requested === "draft" || requested === "publish";
+
   return {
-    configured: Boolean(authToken),
+    // Reaching note's private endpoints has to be asked for *and* credentialed.
+    // Anything else falls back to the file, which always works.
+    output: wantsApi && authToken ? (requested as "draft" | "publish") : "file",
+    apiConfigured: wantsApi && Boolean(authToken),
     authToken,
     session: str(process.env.NOTE_SESSION),
-    publishMode: str(process.env.NOTE_PUBLISH_MODE) === "draft_only" ? "draft_only" : "publish",
+    dailyDraftAt: /^\d{2}:\d{2}$/.test(str(process.env.NOTE_DAILY_DRAFT_AT))
+      ? str(process.env.NOTE_DAILY_DRAFT_AT)
+      : "17:00",
   };
 }
 
@@ -144,8 +161,9 @@ export interface PublicRuntimeStatus {
   maxDelegations: number;
   /** Which external services are wired up. Never the credentials themselves. */
   integrations: { google: boolean; note: boolean };
-  /** What approving a note article does. Shown so the CEO is never surprised. */
-  notePublishMode: NoteConfig["publishMode"];
+  /** Where a finished note article goes, and when the daily job writes one. */
+  noteOutput: NoteConfig["output"];
+  noteDailyDraftAt: string;
 }
 
 export function publicStatus(): PublicRuntimeStatus {
@@ -159,7 +177,9 @@ export function publicStatus(): PublicRuntimeStatus {
     codeExecution: c.codeExecution,
     maxSteps: c.maxSteps,
     maxDelegations: c.maxDelegations,
-    integrations: { google: c.google.configured, note: c.note.configured },
-    notePublishMode: c.note.publishMode,
+    // note always works: with no credentials it writes a file instead.
+    integrations: { google: c.google.configured, note: true },
+    noteOutput: c.note.output,
+    noteDailyDraftAt: c.note.dailyDraftAt,
   };
 }

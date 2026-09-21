@@ -17,12 +17,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const agents = useCompany((s) => s.agents);
   const approvals = useCompany((s) => s.approvals);
   const tasks = useCompany((s) => s.tasks);
+  const noteDrafts = useCompany((s) => s.noteDrafts);
 
   const activeCount = agents.filter((a) => isActiveStatus(a.status)).length;
   const badges = {
     approvals: approvals.filter((a) => a.status === "pending").length,
     tasks: tasks.filter((t) => t.status !== "COMPLETED" && t.status !== "FAILED").length,
     agents: agents.length,
+    noteDrafts: noteDrafts.filter((d) => d.status === "READY").length,
   };
 
   return (

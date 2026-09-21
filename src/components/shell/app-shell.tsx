@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { advanceSimulation, useCompany } from "@/lib/store";
 import { CLOCK_INTERVAL, SIM_INTERVAL } from "@/lib/engine/simulator";
-import { LIVE_POLL_INTERVAL } from "@/lib/live";
+import { JOB_POLL_INTERVAL, LIVE_POLL_INTERVAL } from "@/lib/live";
 import { readSession } from "@/lib/auth";
 import { NotificationBanner } from "@/components/company/notifications";
 import { LiveErrorBanner } from "@/components/company/runtime-badge";
@@ -22,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const hydrateDecisions = useCompany((s) => s.hydrateDecisions);
   const tick = useCompany((s) => s.tick);
   const runScheduledReports = useCompany((s) => s.runScheduledReports);
+  const pokeScheduler = useCompany((s) => s.pokeScheduler);
   const detectRuntime = useCompany((s) => s.detectRuntime);
   const syncFromServer = useCompany((s) => s.syncFromServer);
   const mode = useCompany((s) => s.mode);
@@ -72,6 +73,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const id = window.setInterval(runScheduledReports, 15_000);
     return () => window.clearInterval(id);
   }, [runScheduledReports]);
+
+  /*
+   * Server-side jobs (the daily note article). A platform cron is the real
+   * trigger; this covers running locally, where there is no cron. Jobs are
+   * keyed by JST day, so ringing this every few minutes costs nothing.
+   */
+  useEffect(() => {
+    if (mode !== "live") return;
+    void pokeScheduler();
+    const id = window.setInterval(() => void pokeScheduler(), JOB_POLL_INTERVAL);
+    return () => window.clearInterval(id);
+  }, [mode, pokeScheduler]);
 
   /* Close the mobile drawer on navigation. */
   useEffect(() => {
