@@ -7,8 +7,16 @@ import { PROJECTS, PROJECTS_BY_ID } from "@/lib/company/projects";
 import { KNOWLEDGE } from "@/lib/company/knowledge";
 import { COMPANY_KPIS, DEPARTMENT_LOAD, REVENUE_6M, THROUGHPUT_14D } from "@/lib/company/analytics";
 import { isActiveStatus } from "@/lib/status";
-import type { ActivityEvent, Priority, Task } from "@/lib/types";
+import type { ActivityEvent, Approval, Priority, Task } from "@/lib/types";
+import { getConfig } from "@/server/runtime/config";
 import { mutate } from "@/server/runtime/store";
+import {
+  GoogleApiError,
+  GoogleAuthError,
+  googleClient,
+  googleReady,
+  type SendEmailInput,
+} from "@/server/integrations/google";
 
 /**
  * The tools AI employees actually use.
@@ -25,6 +33,11 @@ export interface RunContext {
   depth: number;
   /** Set by the runner when a tool asks for the CEO. Halts the loop. */
   pendingApprovalId?: string;
+  /**
+   * An irreversible action the employee asked to perform, held back until the
+   * CEO approves. The server, not the model, carries it out on resumption.
+   */
+  pendingAction?: PendingAction;
   /** Queued delegations the runner executes after the turn. */
   delegations: { agentId: string; objective: string; toolUseId: string }[];
   /** Report the run produced, if any. */
@@ -262,18 +275,128 @@ const REPORT_TOOL: Anthropic.Tool = {
   strict: true,
 };
 
+/* ── Gmail and Calendar ───────────────────────────────────────────────────── */
+
+/**
+ * These four are the first tools that reach outside the company. Two of them
+ * read, and run freely. Two of them are seen by real people and cannot be
+ * taken back, so they do not execute when the model calls them: they queue,
+ * raise an approval carrying the exact content, and stop the run. The server
+ * performs the action after the CEO approves — the model never holds the
+ * trigger, which is why no prompt wording can talk its way past this.
+ */
+const EMAIL_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "read_email",
+    description:
+      "Search the company inbox and read what came in. Use Gmail search syntax: `from:`, `subject:`, `is:unread`, `newer_than:3d`, `has:attachment`. Always check the inbox before claiming nobody replied, and before writing a follow-up. Returns headers and a snippet, not full bodies.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: 'Gmail検索クエリ。例: "is:unread newer_than:7d", "from:client@example.com"',
+        },
+        limit: { type: "integer", description: "最大件数（1-25、既定10）" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "send_email",
+    description:
+      "Send an email from the company address. Write the complete, final text — this is not a draft for a human to finish. Calling this does NOT send: it puts the exact message in front of the CEO and pauses your run. The CEO approves, and only then does it go out. So write it as if it will be sent verbatim, because it will be. Never call request_ceo_approval separately for an email; this tool is the request.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: { type: "array", items: { type: "string" }, description: "宛先アドレス" },
+        subject: { type: "string", description: "件名" },
+        body: { type: "string", description: "本文。完成した文面をそのまま書く。" },
+        cc: { type: "array", items: { type: "string" } },
+        inReplyToMessageId: {
+          type: "string",
+          description: "返信するとき、read_email が返したメッセージid。スレッドが保たれる。",
+        },
+        reason: {
+          type: "string",
+          description: "CEOがこの送信を判断するための背景（日本語・1〜2文）",
+        },
+      },
+      required: ["to", "subject", "body", "reason"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+];
+
+const CALENDAR_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "list_calendar_events",
+    description:
+      "Read the CEO's calendar for a date range. Use this before proposing any time — never assume a slot is free.",
+    input_schema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "開始日時（RFC3339。例 2026-09-22T00:00:00+09:00）" },
+        to: { type: "string", description: "終了日時（RFC3339）" },
+        limit: { type: "integer", description: "最大件数（1-50、既定20）" },
+      },
+      required: ["from", "to"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "create_calendar_event",
+    description:
+      "Put an event on the CEO's calendar. Check availability with list_calendar_events first. Without attendees it is a private block and is created immediately. With attendees, Google emails an invitation to those real people, so it goes to the CEO for approval first and your run pauses.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "予定のタイトル" },
+        start: { type: "string", description: "開始日時（RFC3339、タイムゾーン付き）" },
+        end: { type: "string", description: "終了日時（RFC3339、タイムゾーン付き）" },
+        description: { type: "string" },
+        location: { type: "string", description: "場所、またはビデオ会議のURL" },
+        attendees: {
+          type: "array",
+          items: { type: "string" },
+          description: "招待する相手のアドレス。指定するとCEO承認が必要になる。",
+        },
+      },
+      required: ["summary", "start", "end"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+];
+
 export function companyToolsFor(options: {
+  agentId: string;
   canDelegate: boolean;
   canReport: boolean;
 }): Anthropic.Tool[] {
   const tools = [...COMPANY_TOOLS, APPROVAL_TOOL];
   if (options.canDelegate) tools.push(DELEGATE_TOOL);
   if (options.canReport) tools.push(REPORT_TOOL);
+
+  // An employee is handed an integration only if the registry says that is
+  // part of their job — the same list the org chart and Settings render from.
+  const equipped = AGENTS_BY_ID[options.agentId]?.tools ?? [];
+  if (googleReady()) {
+    if (equipped.includes("email")) tools.push(...EMAIL_TOOLS);
+    if (equipped.includes("calendar")) tools.push(...CALENDAR_TOOLS);
+  }
+
   return tools;
 }
 
 export const COMPANY_TOOL_NAMES = new Set([
   ...COMPANY_TOOLS.map((t) => t.name),
+  ...EMAIL_TOOLS.map((t) => t.name),
+  ...CALENDAR_TOOLS.map((t) => t.name),
   DELEGATE_TOOL.name,
   APPROVAL_TOOL.name,
   REPORT_TOOL.name,
@@ -287,6 +410,105 @@ export interface ToolOutcome {
   /** Set when the tool halts the run pending a CEO decision. */
   halt?: boolean;
 }
+
+/**
+ * An irreversible action the employee asked for, parked until the CEO decides.
+ * It is stored on the run, not in the conversation, so nothing the model says
+ * afterwards can alter what actually gets performed.
+ */
+export interface PendingAction {
+  tool: "send_email" | "create_calendar_event";
+  input: Record<string, unknown>;
+  approvalId: string;
+}
+
+interface ApprovalRequest {
+  kind: Approval["kind"];
+  title: string;
+  summary: string;
+  impact: string;
+  risk: Approval["risk"];
+  priority: Priority;
+  /** Shown to the CEO verbatim — the actual content being approved. */
+  payload?: { label: string; value: string }[];
+}
+
+/** Raises the approval, notifies the CEO, and marks the employee as blocked. */
+function raiseApproval(ctx: RunContext, request: ApprovalRequest, now: number): string {
+  const approvalId = uid("ap");
+
+  mutate((s) => {
+    s.approvals = [
+      {
+        id: approvalId,
+        kind: request.kind,
+        title: request.title,
+        description: request.summary,
+        requestedBy: ctx.agentId,
+        requestedAt: now,
+        summary: request.summary,
+        impact: request.impact,
+        risk: request.risk,
+        priority: request.priority,
+        payload: request.payload,
+        status: "pending",
+        href: "/command",
+      },
+      ...s.approvals,
+    ];
+    s.notifications = [
+      {
+        id: uid("ntf"),
+        kind: "approval",
+        level: request.priority === "urgent" ? "URGENT" : "APPROVAL_REQUIRED",
+        title: request.title,
+        message: `${roleOf(ctx.agentId)} があなたの承認を待っています。${request.summary}`,
+        createdAt: now,
+        read: false,
+        recipient: "CEO",
+        agentId: ctx.agentId,
+        relatedApprovalId: approvalId,
+        href: "/command",
+        actionLabel: "Review",
+      },
+      ...s.notifications,
+    ];
+    s.activity = [
+      {
+        id: uid("act"),
+        kind: "approval.requested",
+        agentId: ctx.agentId,
+        at: now,
+        message: `${request.title}の承認を申請`,
+        detail: request.summary,
+        severity: request.priority === "urgent" ? "critical" : "important",
+      },
+      ...s.activity,
+    ];
+    const runtime = s.agents[ctx.agentId];
+    if (runtime) {
+      runtime.status = "needs_approval";
+      runtime.currentTask = request.title;
+      runtime.lastActiveAt = now;
+    }
+  });
+
+  ctx.pendingApprovalId = approvalId;
+  return approvalId;
+}
+
+function googleFailure(error: unknown): ToolOutcome {
+  if (error instanceof GoogleAuthError) {
+    return { content: `${error.message}`, isError: true };
+  }
+  if (error instanceof GoogleApiError) {
+    return { content: `Google API エラー (${error.status}): ${error.message}`, isError: true };
+  }
+  return { content: `Google連携に失敗しました: ${(error as Error).message}`, isError: true };
+}
+
+const asList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map((v) => String(v).trim()).filter(Boolean) : [];
 
 export async function executeCompanyTool(
   name: string,
@@ -451,66 +673,193 @@ export async function executeCompanyTool(
       }
 
       case "request_ceo_approval": {
-        const approvalId = uid("ap");
-        const title = String(input.title ?? "承認事項");
-        mutate((s) => {
-          s.approvals = [
-            {
-              id: approvalId,
-              kind: (input.kind as never) ?? "decision",
-              title,
-              description: String(input.summary ?? ""),
-              requestedBy: ctx.agentId,
-              requestedAt: now,
-              summary: String(input.summary ?? ""),
-              impact: String(input.impact ?? ""),
-              risk: (input.risk as never) ?? "medium",
-              priority: (input.priority as Priority) ?? "high",
-              status: "pending",
-              href: "/command",
-            },
-            ...s.approvals,
-          ];
-          s.notifications = [
-            {
-              id: uid("ntf"),
-              kind: "approval",
-              level: input.priority === "urgent" ? "URGENT" : "APPROVAL_REQUIRED",
-              title,
-              message: `${roleOf(ctx.agentId)} があなたの承認を待っています。${input.summary ?? ""}`,
-              createdAt: now,
-              read: false,
-              recipient: "CEO",
-              agentId: ctx.agentId,
-              relatedApprovalId: approvalId,
-              href: "/command",
-              actionLabel: "Review",
-            },
-            ...s.notifications,
-          ];
-          s.activity = [
-            {
-              id: uid("act"),
-              kind: "approval.requested",
-              agentId: ctx.agentId,
-              at: now,
-              message: `${title}の承認を申請`,
-              detail: String(input.summary ?? ""),
-              severity: input.priority === "urgent" ? "critical" : "important",
-            },
-            ...s.activity,
-          ];
-          const runtime = s.agents[ctx.agentId];
-          if (runtime) {
-            runtime.status = "needs_approval";
-            runtime.currentTask = title;
-            runtime.lastActiveAt = now;
-          }
-        });
-        ctx.pendingApprovalId = approvalId;
+        raiseApproval(
+          ctx,
+          {
+            kind: (input.kind as Approval["kind"]) ?? "decision",
+            title: String(input.title ?? "承認事項"),
+            summary: String(input.summary ?? ""),
+            impact: String(input.impact ?? ""),
+            risk: (input.risk as Approval["risk"]) ?? "medium",
+            priority: (input.priority as Priority) ?? "high",
+          },
+          now,
+        );
         return {
           content:
             "CEOへ承認を申請しました。決定が出るまでこの作業は停止します。承認なしに実行してはいけません。",
+          halt: true,
+        };
+      }
+
+      case "read_email": {
+        const query = String(input.query ?? "").trim();
+        if (!query) return { content: "query is required", isError: true };
+        const limit = Math.min(Math.max(Number(input.limit) || 10, 1), 25);
+
+        try {
+          const messages = await googleClient().searchEmail(query, limit);
+          pushActivity({
+            kind: "agent.tool_called",
+            agentId: ctx.agentId,
+            at: now,
+            message: "受信メールを確認",
+            detail: `"${query}" — ${messages.length}件`,
+          });
+          if (messages.length === 0) {
+            return { content: `該当するメールはありません（query: ${query}）。` };
+          }
+          return {
+            content: messages
+              .map(
+                (m) =>
+                  `id: ${m.id}${m.unread ? " [未読]" : ""}\nfrom: ${m.from}\ndate: ${m.date}\nsubject: ${m.subject}\n${m.snippet}`,
+              )
+              .join("\n\n---\n\n"),
+          };
+        } catch (error) {
+          return googleFailure(error);
+        }
+      }
+
+      case "send_email": {
+        const to = asList(input.to);
+        const subject = String(input.subject ?? "").trim();
+        const body = String(input.body ?? "").trim();
+        if (to.length === 0) return { content: "to is required", isError: true };
+        if (!subject || !body) {
+          return { content: "subject と body は必須です。完成した文面を書いてください。", isError: true };
+        }
+
+        const cc = asList(input.cc);
+        const approvalId = raiseApproval(
+          ctx,
+          {
+            kind: "email",
+            title: `メール送信: ${subject}`,
+            summary: String(input.reason ?? "") || `${to.join(", ")} へメールを送信します。`,
+            impact: `承認すると、この文面がそのまま ${to.join(", ")}${
+              cc.length ? `（Cc: ${cc.join(", ")}）` : ""
+            } へ送信されます。送信後の取り消しはできません。`,
+            risk: "high",
+            priority: "urgent",
+            // The CEO approves the actual text, not a description of it.
+            payload: [
+              { label: "To", value: to.join(", ") },
+              ...(cc.length ? [{ label: "Cc", value: cc.join(", ") }] : []),
+              { label: "Subject", value: subject },
+              { label: "Body", value: body },
+            ],
+          },
+          now,
+        );
+
+        ctx.pendingAction = {
+          tool: "send_email",
+          input: { to, subject, body, cc, inReplyToMessageId: input.inReplyToMessageId },
+          approvalId,
+        };
+
+        return {
+          content:
+            "メールはまだ送信していません。文面をそのままCEOの承認待ちに入れ、この作業を停止しました。" +
+            "承認されればサーバーが送信します。別の手段で送ろうとしてはいけません。",
+          halt: true,
+        };
+      }
+
+      case "list_calendar_events": {
+        const from = String(input.from ?? "").trim();
+        const to = String(input.to ?? "").trim();
+        if (!from || !to) return { content: "from と to は必須です（RFC3339）。", isError: true };
+        const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+
+        try {
+          const events = await googleClient().listEvents(from, to, limit);
+          pushActivity({
+            kind: "agent.tool_called",
+            agentId: ctx.agentId,
+            at: now,
+            message: "カレンダーを確認",
+            detail: `${from.slice(0, 10)} 〜 ${to.slice(0, 10)} — ${events.length}件`,
+          });
+          if (events.length === 0) return { content: "この期間に予定はありません。" };
+          return {
+            content: events
+              .map(
+                (e) =>
+                  `${e.start} 〜 ${e.end} | ${e.summary}${e.location ? ` @ ${e.location}` : ""}${
+                    e.attendees.length ? ` | 参加者: ${e.attendees.join(", ")}` : ""
+                  }`,
+              )
+              .join("\n"),
+          };
+        } catch (error) {
+          return googleFailure(error);
+        }
+      }
+
+      case "create_calendar_event": {
+        const summary = String(input.summary ?? "").trim();
+        const start = String(input.start ?? "").trim();
+        const end = String(input.end ?? "").trim();
+        if (!summary || !start || !end) {
+          return { content: "summary / start / end は必須です。", isError: true };
+        }
+        const attendees = asList(input.attendees);
+        const payload = {
+          summary,
+          start,
+          end,
+          description: input.description ? String(input.description) : undefined,
+          location: input.location ? String(input.location) : undefined,
+          attendees,
+        };
+
+        // A private block on the CEO's own calendar is reversible and nobody
+        // else sees it. Inviting people emails them, so that needs approval.
+        if (attendees.length === 0) {
+          try {
+            const event = await googleClient().createEvent(payload);
+            pushActivity({
+              kind: "agent.tool_called",
+              agentId: ctx.agentId,
+              at: now,
+              message: "カレンダーに予定を追加",
+              detail: `${event.summary} — ${event.start}`,
+            });
+            return { content: `予定を作成しました: ${event.summary}（${event.start} 〜 ${event.end}）` };
+          } catch (error) {
+            return googleFailure(error);
+          }
+        }
+
+        const approvalId = raiseApproval(
+          ctx,
+          {
+            kind: "external_service",
+            title: `打ち合わせの設定: ${summary}`,
+            summary:
+              String(input.description ?? "") ||
+              `${attendees.join(", ")} を招待して予定を作成します。`,
+            impact: `承認すると予定が作成され、${attendees.join(", ")} へGoogleから招待メールが届きます。`,
+            risk: "medium",
+            priority: "high",
+            payload: [
+              { label: "Title", value: summary },
+              { label: "When", value: `${start} 〜 ${end}` },
+              ...(payload.location ? [{ label: "Where", value: payload.location }] : []),
+              { label: "Attendees", value: attendees.join(", ") },
+            ],
+          },
+          now,
+        );
+
+        ctx.pendingAction = { tool: "create_calendar_event", input: payload, approvalId };
+
+        return {
+          content:
+            "招待を伴う予定のため、まだ作成していません。CEOの承認待ちに入れ、この作業を停止しました。",
           halt: true,
         };
       }
@@ -529,6 +878,75 @@ export async function executeCompanyTool(
     }
   } catch (error) {
     return { content: `Tool failed: ${(error as Error).message}`, isError: true };
+  }
+}
+
+/* ── Performing what the CEO approved ─────────────────────────────────────── */
+
+/**
+ * Runs a queued action once, after approval, from the server.
+ *
+ * This is the other half of the gate. The model asked for the action and then
+ * lost control of it: what runs here is the input recorded at request time,
+ * which is also exactly what the CEO read before approving. The employee is
+ * told the outcome and carries on from there.
+ */
+export async function performApprovedAction(
+  action: PendingAction,
+  agentId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const now = Date.now();
+
+  try {
+    if (action.tool === "send_email") {
+      const input = action.input as unknown as SendEmailInput;
+      const sent = await googleClient().sendEmail({
+        to: input.to,
+        subject: input.subject,
+        body: input.body,
+        cc: input.cc?.length ? input.cc : undefined,
+        inReplyToMessageId: input.inReplyToMessageId || undefined,
+      });
+      pushActivity({
+        kind: "agent.tool_called",
+        agentId,
+        at: now,
+        message: "CEO承認を受けてメールを送信",
+        detail: `${sent.to.join(", ")} — ${sent.subject}`,
+        severity: "important",
+      });
+      return {
+        ok: true,
+        message: `メールを送信しました。宛先: ${sent.to.join(", ")} / 件名: ${sent.subject}（messageId: ${sent.id}）`,
+      };
+    }
+
+    const event = await googleClient().createEvent(
+      action.input as unknown as Parameters<ReturnType<typeof googleClient>["createEvent"]>[0],
+    );
+    pushActivity({
+      kind: "agent.tool_called",
+      agentId,
+      at: now,
+      message: "CEO承認を受けて予定を作成",
+      detail: `${event.summary} — ${event.start}`,
+      severity: "important",
+    });
+    return {
+      ok: true,
+      message: `予定を作成し、招待を送信しました: ${event.summary}（${event.start} 〜 ${event.end}）`,
+    };
+  } catch (error) {
+    const message = googleFailure(error).content;
+    pushActivity({
+      kind: "agent.completed",
+      agentId,
+      at: now,
+      message: "承認後の実行に失敗しました",
+      detail: message.slice(0, 140),
+      severity: "critical",
+    });
+    return { ok: false, message };
   }
 }
 

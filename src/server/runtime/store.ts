@@ -16,6 +16,7 @@ import type {
   Report,
   Task,
 } from "@/lib/types";
+import type { PendingAction } from "@/server/agents/tools";
 import { getConfig } from "./config";
 
 /**
@@ -58,6 +59,11 @@ export interface AgentRun {
    * so it can pick up exactly where it stopped once the CEO decides.
    */
   messages?: unknown[];
+  /**
+   * The irreversible action this run asked permission for. Held here, outside
+   * the conversation, so what finally executes is what the CEO approved.
+   */
+  pendingAction?: PendingAction;
   objectiveContext?: string;
   canDelegate?: boolean;
   canReport?: boolean;

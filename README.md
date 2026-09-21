@@ -20,7 +20,8 @@ AI社員だけで構成された会社を、人間の社長1人が経営する�
 | 5 | Real Tools — Web検索 / コード実行 / 社内データ | ✅ 完了 |
 | 3 | Database (Supabase) | 未着手（現在はファイル永続化） |
 | 6 | Scheduled Reports (Cron) | 部分的 — 会社時計で発火 |
-| 7 | External Integrations | 未着手 |
+| 7 | External Integrations — Google (Gmail / Calendar) | ✅ 完了 |
+| 7 | External Integrations — GitHub / Vercel / Instagram | 未着手 |
 
 **APIキーを設定すると、AI社員は実際に働きます。**
 Claudeを呼び出し、Webを検索し、コードを実行し、社内データを読み書きし、
@@ -254,6 +255,10 @@ CEOが Approve
 | `delegate` | 他のAI社員を実行し、結果を受け取る |
 | `request_ceo_approval` | 実行を停止してCEOの判断を待つ |
 | `submit_report` | レポートを提出し、PDFを生成して確認待ちに入れる |
+| `read_email` | Gmailの実際の受信箱を検索して読む（Google連携時） |
+| `send_email` | 完成した文面をCEOの承認に回す。送信はサーバーが行う（Google連携時） |
+| `list_calendar_events` | Googleカレンダーの実際の空きを確認する（Google連携時） |
+| `create_calendar_event` | 予定を作成する。招待つきはCEO承認（Google連携時） |
 
 Web検索の動的フィルタリングは内部でコード実行を使うため、
 同じAI社員に両方を渡すことはしません。担当領域に応じてどちらかを割り当てます。
@@ -263,6 +268,11 @@ Web検索の動的フィルタリングは内部でコード実行を使うた�
 - 外部送信・SNS公開・支出・契約・本番反映・外部サービス接続は、
   system prompt で禁止したうえで `request_ceo_approval` を必ず経由させます。
   承認前に実行する迂回路はツール側にも存在しません。
+- **取り消せない操作は、モデルが引き金を持ちません。** `send_email` を呼んでも
+  メールは送信されず、文面がそのまま承認待ちに入って実行が停止します。
+  承認後に送信するのはサーバーで、使われるのは申請時に記録された内容
+  ——つまりCEOが画面で読んだものそのものです。モデルがあとから何を言っても、
+  送られる中身は変わりません。却下すればGoogleには何も届きません。
 - 会社の数値に触れる前に必ずデータを読ませます。読めなかった項目は
   その旨を書くよう指示しています。
 - 1回の実行のステップ数と委譲数に上限を設けています（既定 24 / 5）。
@@ -272,6 +282,60 @@ Web検索の動的フィルタリングは内部でコード実行を使うた�
 `Agent Runs` パネル（Command Center / Activity）に、どのAI社員が今動いていて、
 どのツールを何回呼び、何ステップ進み、いくらトークンを使ったかが出ます。
 失敗した実行はエラー内容をそのまま表示します。
+
+---
+
+## Google 連携（Gmail / Calendar）
+
+OAuthクライアント1つで Gmail と Calendar の両方が繋がり、8名のAI社員が
+実際の受信箱とカレンダーを扱えるようになります。
+
+| AI社員 | Gmail | Calendar |
+| --- | :-: | :-: |
+| COO | | ● |
+| CSO | ● | |
+| Executive Assistant | ● | ● |
+| Schedule AI | ● | ● |
+| Personal Assistant AI | ● | ● |
+| Outreach AI | ● | |
+| Partnership AI | ● | |
+| Lifecycle AI | ● | |
+
+誰がどのツールを持つかは Agent Registry の `tools` がそのまま反映されます。
+レジストリに `email` を足せば、そのAI社員は次の実行から受信箱を読み始めます。
+
+### 設定
+
+```bash
+npm run google-auth
+```
+
+ブラウザで許可すると、`.env.local` に貼る3行が表示されます。
+事前に Google Cloud Console で Gmail API と Google Calendar API を有効化し、
+OAuth クライアントID（デスクトップアプリ）を作成しておいてください。
+Settings 画面の Integrations パネルに同じ手順があります。
+
+必要なスコープは3つだけです。
+
+| スコープ | 用途 |
+| --- | --- |
+| `gmail.readonly` | 受信箱の検索と閲覧 |
+| `gmail.send` | 承認後の送信 |
+| `calendar.events` | 予定の確認と作成 |
+
+設定しなければ該当のツールは配布されず、他の機能はそのまま動きます。
+
+### 何が自動で、何が止まるか
+
+| 操作 | 実行 |
+| --- | --- |
+| 受信メールの検索・閲覧 | そのまま実行 |
+| カレンダーの空き確認 | そのまま実行 |
+| 自分だけの予定を入れる | そのまま実行（取り消せる・誰も見ない） |
+| **メール送信** | **CEO承認。文面がそのまま承認カードに載る** |
+| **招待つきの予定作成** | **CEO承認（Googleが相手に招待メールを送るため）** |
+
+承認カードには宛先・件名・本文が実物のまま表示されます。要約ではありません。
 
 ---
 

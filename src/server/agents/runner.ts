@@ -6,9 +6,11 @@ import { DEPARTMENTS } from "@/lib/company/departments";
 import type { AgentStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
 import { mutate, type AgentRun } from "@/server/runtime/store";
+import { googleReady } from "@/server/integrations/google";
 import {
   companyToolsFor,
   executeCompanyTool,
+  performApprovedAction,
   pushActivity,
   type RunContext,
 } from "./tools";
@@ -93,6 +95,11 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
     .map((id) => `${id} (${AGENTS_BY_ID[id]?.role ?? id})`)
     .join(", ");
 
+  // Only describe an integration the employee is actually handed this run.
+  const google = googleReady();
+  const hasEmail = google && agent.tools.includes("email");
+  const hasCalendar = google && agent.tools.includes("calendar");
+
   return [
     agent.systemPrompt,
     "",
@@ -105,6 +112,12 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
     agent.tools.includes("web_research") || agent.tools.includes("browser")
       ? "- 社外の事実が必要なときは web_search / web_fetch で実際に調べ、出典を示す。"
       : "",
+    hasEmail
+      ? "- 相手の反応を推測しない。read_email で実際の受信内容を確認してから判断する。"
+      : "",
+    hasCalendar
+      ? "- 日程に触れる前に list_calendar_events で実際の空きを確認する。埋まっている時間を提案しない。"
+      : "",
     "- 事実・解釈・推奨を分けて書く。結論を先に述べる。",
     canDelegate
       ? "- 自分の担当外の作業は delegate で適切なAI社員へ委譲する。指示は単独で理解できる完結した内容にする。"
@@ -114,6 +127,12 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
     "## 絶対の制約",
     "- 外部へのメール送信・SNS公開・支出・契約・本番環境への反映・外部サービス接続は、",
     "  いかなる理由があっても自分で実行しない。必ず request_ceo_approval を呼んで停止する。",
+    hasEmail
+      ? "- メールは send_email に完成した文面を渡す。これ自体がCEOへの承認申請であり、送信はCEOが承認した後にシステムが行う。別途 request_ceo_approval を呼ぶ必要はない。"
+      : "",
+    hasCalendar
+      ? "- 参加者を招待する予定は create_calendar_event がそのままCEO承認に回る。自分だけの予定はそのまま作成される。"
+      : "",
     "- 承認が下りるまで、その作業は完了していない。回避策を探さない。",
     "- 最終的な意思決定者は常にCEO（陽大）である。",
     "",
@@ -253,7 +272,7 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
   };
 
   const tools: Anthropic.ToolUnion[] = [
-    ...companyToolsFor({ canDelegate, canReport }),
+    ...companyToolsFor({ agentId: options.agentId, canDelegate, canReport }),
     ...serverTools(options.agentId),
   ];
 
@@ -449,6 +468,8 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
           result: finalText,
           // Kept so the run can continue from here once the CEO decides.
           messages: messages as unknown[],
+          // The action itself, held server-side rather than in the transcript.
+          pendingAction: ctx.pendingAction,
           depth,
           canDelegate,
           canReport,
@@ -541,9 +562,24 @@ export async function resumeRun(
   if (!stored || stored.status !== "waiting_for_ceo" || !stored.messages) return null;
 
   const messages = stored.messages as Anthropic.MessageParam[];
+
+  // An action the employee queued behind the gate is carried out here, by the
+  // server, using the input the CEO actually read — not by asking the model to
+  // do it now that permission exists.
+  let performed: { ok: boolean; message: string } | null = null;
+  if (decision === "approved" && stored.pendingAction) {
+    performed = await performApprovedAction(stored.pendingAction, stored.agentId);
+  }
+
+  const approvedNote = performed
+    ? performed.ok
+      ? `CEOが承認しました。${comment ? `コメント: ${comment}\n` : ""}承認された操作はシステムが実行済みです: ${performed.message}\n結果を踏まえて作業を続け、完了していれば報告してください。同じ操作を再実行しないでください。`
+      : `CEOは承認しましたが、実行に失敗しました: ${performed.message}\n原因を報告し、対処が必要ならCEOに伝えてください。`
+    : `CEOが承認しました。${comment ? `コメント: ${comment}\n` : ""}承認された操作を実行し、結果を報告してください。`;
+
   const note =
     decision === "approved"
-      ? `CEOが承認しました。${comment ? `コメント: ${comment}\n` : ""}承認された操作を実行し、結果を報告してください。`
+      ? approvedNote
       : decision === "rejected"
         ? `CEOが却下しました。${comment ? `理由: ${comment}\n` : ""}この操作は実行しないでください。代替案があれば提示し、なければその旨を報告して終了してください。`
         : `CEOから修正依頼がありました。${comment ? `依頼内容: ${comment}\n` : ""}反映して作業を続けてください。`;
@@ -555,6 +591,7 @@ export async function resumeRun(
     if (run) {
       run.status = "running";
       run.messages = undefined;
+      run.pendingAction = undefined;
       run.finishedAt = undefined;
     }
     const runtime = s.agents[stored.agentId];
@@ -585,6 +622,7 @@ export async function resumeRun(
     ctx,
     tools: [
       ...companyToolsFor({
+        agentId: stored.agentId,
         canDelegate: stored.canDelegate ?? false,
         canReport: stored.canReport ?? true,
       }),

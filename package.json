@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "selftest": "tsx --conditions=react-server scripts/selftest.mts"
+    "selftest": "tsx --conditions=react-server scripts/selftest.mts",
+    "google-auth": "node scripts/google-auth.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

@@ -10,6 +10,22 @@ import "server-only";
 
 export type RuntimeMode = "live" | "demo";
 
+/**
+ * Google is one OAuth client covering both Gmail and Calendar, so it is one
+ * switch: either the AI employees can reach the CEO's inbox and diary, or they
+ * cannot. A refresh token is used rather than a live consent flow so employees
+ * working unattended still have valid credentials.
+ */
+export interface GoogleConfig {
+  configured: boolean;
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  /** The From address on anything sent. Blank means the authorised account. */
+  sendAs: string;
+  calendarId: string;
+}
+
 export interface RuntimeConfig {
   mode: RuntimeMode;
   hasApiKey: boolean;
@@ -25,6 +41,7 @@ export interface RuntimeConfig {
   taskBudgetTokens: number;
   dataDir: string;
   webTools: boolean;
+  google: GoogleConfig;
   codeExecution: boolean;
   /**
    * Development only. Runs the whole pipeline with a scripted stand-in for the
@@ -43,6 +60,25 @@ function bool(value: string | undefined, fallback: boolean): boolean {
 function int(value: string | undefined, fallback: number): number {
   const n = Number.parseInt(value ?? "", 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function str(value: string | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function googleConfig(): GoogleConfig {
+  const clientId = str(process.env.GOOGLE_CLIENT_ID);
+  const clientSecret = str(process.env.GOOGLE_CLIENT_SECRET);
+  const refreshToken = str(process.env.GOOGLE_REFRESH_TOKEN);
+
+  return {
+    configured: Boolean(clientId && clientSecret && refreshToken),
+    clientId,
+    clientSecret,
+    refreshToken,
+    sendAs: str(process.env.GOOGLE_SEND_AS),
+    calendarId: str(process.env.GOOGLE_CALENDAR_ID) || "primary",
+  };
 }
 
 export function getConfig(): RuntimeConfig {
@@ -64,6 +100,7 @@ export function getConfig(): RuntimeConfig {
     maxDelegations: int(process.env.FRIDAY_MAX_DELEGATIONS, 5),
     taskBudgetTokens: int(process.env.FRIDAY_TASK_BUDGET, 60_000),
     dataDir: process.env.FRIDAY_DATA_DIR?.trim() || ".friday",
+    google: googleConfig(),
     webTools: bool(process.env.FRIDAY_WEB_TOOLS, true),
     codeExecution: bool(process.env.FRIDAY_CODE_EXECUTION, true),
   };
@@ -80,6 +117,8 @@ export interface PublicRuntimeStatus {
   codeExecution: boolean;
   maxSteps: number;
   maxDelegations: number;
+  /** Which external services are wired up. Never the credentials themselves. */
+  integrations: { google: boolean };
 }
 
 export function publicStatus(): PublicRuntimeStatus {
@@ -93,5 +132,6 @@ export function publicStatus(): PublicRuntimeStatus {
     codeExecution: c.codeExecution,
     maxSteps: c.maxSteps,
     maxDelegations: c.maxDelegations,
+    integrations: { google: c.google.configured },
   };
 }

@@ -4,7 +4,8 @@
  * Exercises the live agent layer end to end with a stubbed Claude transport:
  * the loop, real tool execution against real company state, delegation into a
  * sub-agent, the approval gate halting a run, report submission with a real
- * PDF, and resumption once the CEO decides.
+ * PDF, resumption once the CEO decides, and the Gmail/Calendar integration —
+ * including the guarantee that no mail reaches Google before approval.
  *
  * Run: npm run selftest
  */
@@ -17,11 +18,70 @@ process.env.ANTHROPIC_API_KEY = "sk-ant-selftest";
 process.env.FRIDAY_DATA_DIR = mkdtempSync(path.join(tmpdir(), "friday-selftest-"));
 
 const { runAgent, resumeRun, __setClientForTesting } = await import("../src/server/agents/runner");
+const { __setGoogleClientForTesting, buildMime } = await import(
+  "../src/server/integrations/google"
+);
 const { readState, mutate } = await import("../src/server/runtime/store");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
 type Block = Record<string, unknown>;
+
+/**
+ * Google, stubbed. The point of the gate is that the model cannot reach this
+ * — so the stub records every call, and the test asserts nothing arrives here
+ * until the CEO has approved.
+ */
+const google = {
+  sent: [] as { to: string[]; subject: string; body: string }[],
+  events: [] as { summary: string; attendees: string[] }[],
+  searches: [] as string[],
+};
+
+__setGoogleClientForTesting({
+  async searchEmail(query: string) {
+    google.searches.push(query);
+    return [
+      {
+        id: "m1",
+        threadId: "th1",
+        from: "partner@example.com",
+        to: "ceo@re-palette.test",
+        subject: "提携のご相談",
+        date: "Mon, 21 Sep 2026 09:12:00 +0900",
+        snippet: "先日はありがとうございました。条件についてご相談があります。",
+        unread: true,
+      },
+    ];
+  },
+  async sendEmail(input) {
+    google.sent.push({ to: input.to, subject: input.subject, body: input.body });
+    return { id: "sent-1", threadId: "th1", to: input.to, subject: input.subject };
+  },
+  async listEvents() {
+    return [
+      {
+        id: "e1",
+        summary: "役員定例",
+        start: "2026-09-22T10:00:00+09:00",
+        end: "2026-09-22T11:00:00+09:00",
+        attendees: [],
+        status: "confirmed",
+      },
+    ];
+  },
+  async createEvent(input) {
+    google.events.push({ summary: input.summary, attendees: input.attendees ?? [] });
+    return {
+      id: "ev-1",
+      summary: input.summary,
+      start: input.start,
+      end: input.end,
+      attendees: input.attendees ?? [],
+      status: "confirmed",
+    };
+  },
+});
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -64,6 +124,33 @@ const script: Record<string, Block[][]> = {
     ],
     // After the CEO approves:
     [{ type: "text", text: "送信しました。2社へ初回接触メールを送付済みです。" }],
+  ],
+  "Executive Assistant": [
+    [
+      { type: "tool_use", id: "e1", name: "read_email", input: { query: "is:unread newer_than:7d" } },
+      {
+        type: "tool_use",
+        id: "e2",
+        name: "list_calendar_events",
+        input: { from: "2026-09-22T00:00:00+09:00", to: "2026-09-23T00:00:00+09:00" },
+      },
+    ],
+    [
+      { type: "text", text: "返信の文面を用意しました。送信の承認をお願いします。" },
+      {
+        type: "tool_use",
+        id: "e3",
+        name: "send_email",
+        input: {
+          to: ["partner@example.com"],
+          subject: "Re: 提携のご相談",
+          body: "ご連絡ありがとうございます。\n9月22日の午後であれば対応可能です。\n\nRe-Palette 陽大",
+          inReplyToMessageId: "m1",
+          reason: "提携候補からの問い合わせに返信し、日程を提示します。",
+        },
+      },
+    ],
+    [{ type: "text", text: "返信を送付し、先方へ日程を提示しました。" }],
   ],
   "Research Director": [
     [
@@ -202,6 +289,74 @@ check(
   "resumption is visible in the activity feed",
   after.activity.some((e) => e.message.includes("作業を再開")),
 );
+
+// ── Gmail and Calendar: the employee reads freely and cannot send ──────────
+console.log("\n=== Google integration (stubbed Gmail / Calendar) ===\n");
+
+check(
+  "MIME encodes a Japanese subject",
+  buildMime(
+    { to: ["a@example.com"], subject: "提携のご相談", body: "本文" },
+    "Re-Palette <ceo@example.com>",
+  ).includes("Subject: =?UTF-8?B?"),
+);
+// A newline smuggled into a recipient must stay inside the To value rather
+// than starting a header line of its own.
+check(
+  "MIME refuses a forged header",
+  !buildMime(
+    { to: ["a@example.com\r\nBcc: attacker@example.com"], subject: "x", body: "y" },
+    "me",
+  )
+    .split("\r\n")
+    .some((line) => /^bcc:/i.test(line)),
+);
+
+const assistant = await runAgent({
+  agentId: "chief_of_staff",
+  objective: "未読メールを確認し、必要なら返信してください。",
+  canDelegate: false,
+  canReport: false,
+});
+
+check("assistant halted at the send gate", assistant.status === "waiting_for_ceo", assistant.status);
+check("nothing was sent before approval", google.sent.length === 0, `${google.sent.length} sent`);
+check("the inbox was actually read", google.searches.length === 1, google.searches[0]);
+
+const sendApproval = readState().approvals.find((a) => a.id === assistant.approvalId);
+check("send raised an email approval", sendApproval?.kind === "email", sendApproval?.kind);
+check(
+  "the CEO sees the exact text that would go out",
+  sendApproval?.payload?.find((p) => p.label === "Body")?.value.includes("9月22日の午後") ?? false,
+);
+check(
+  "the queued action is held on the run, not in the transcript",
+  readState().runs.find((r) => r.id === assistant.runId)?.pendingAction?.tool === "send_email",
+);
+
+const delivered = await resumeRun(assistant.runId, "approved", "この内容で送ってください");
+
+check("the server sent it once the CEO approved", google.sent.length === 1);
+check(
+  "what was sent is what was approved",
+  google.sent[0]?.to[0] === "partner@example.com" &&
+    google.sent[0]?.body.includes("9月22日の午後"),
+);
+check("the assistant finished after the send", delivered?.status === "completed", delivered?.status);
+check(
+  "the send is on the record",
+  readState().activity.some((e) => e.message.includes("承認を受けてメールを送信")),
+);
+
+// A rejected request must leave nothing behind.
+const second = await runAgent({
+  agentId: "chief_of_staff",
+  objective: "先方へもう一通送ってください。",
+  canDelegate: false,
+  canReport: false,
+});
+await resumeRun(second.runId, "rejected", "今回は送らないでください");
+check("a rejected send never reaches Google", google.sent.length === 1, `${google.sent.length} sent`);
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

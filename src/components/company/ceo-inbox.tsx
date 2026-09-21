@@ -157,14 +157,25 @@ function ApprovalCard({
 
                 {approval.payload && (
                   <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {approval.payload.map((p) => (
-                      <div key={p.label} className="min-w-0">
-                        <dt className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
-                          {p.label}
-                        </dt>
-                        <dd className="truncate text-2xs text-ink-muted">{p.value}</dd>
-                      </div>
-                    ))}
+                    {approval.payload.map((p) => {
+                      // An email body is what is actually being approved, so it
+                      // is shown in full rather than truncated to one line.
+                      const long = p.value.includes("\n") || p.value.length > 72;
+                      return (
+                        <div key={p.label} className={cn("min-w-0", long && "col-span-2")}>
+                          <dt className="font-mono text-3xs uppercase tracking-[0.14em] text-ink-ghost">
+                            {p.label}
+                          </dt>
+                          {long ? (
+                            <dd className="scroll-slim mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-black/25 px-2.5 py-2 text-2xs leading-relaxed text-ink-muted">
+                              {p.value}
+                            </dd>
+                          ) : (
+                            <dd className="truncate text-2xs text-ink-muted">{p.value}</dd>
+                          )}
+                        </div>
+                      );
+                    })}
                   </dl>
                 )}
               </motion.div>

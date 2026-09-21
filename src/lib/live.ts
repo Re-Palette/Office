@@ -27,6 +27,8 @@ export interface RuntimeStatus {
   codeExecution: boolean;
   maxSteps: number;
   maxDelegations: number;
+  /** Which external services are wired up. Never the credentials themselves. */
+  integrations?: { google: boolean };
 }
 
 export interface AgentRunSummary {

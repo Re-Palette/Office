@@ -8,6 +8,7 @@ import { useCompany } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button, Chip, Panel, PanelHeader } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
+import { Integrations } from "@/components/settings/integrations";
 import { LiveAgents } from "@/components/settings/live-agents";
 
 const PHASES = [
@@ -18,7 +19,7 @@ const PHASES = [
   { id: 5, label: "Real Tools — Web / Code / 社内データ", done: true },
   { id: 3, label: "Database (Supabase)", done: false },
   { id: 6, label: "Scheduled Reports", done: false },
-  { id: 7, label: "External Integrations", done: false },
+  { id: 7, label: "External Integrations — Google (Gmail / Calendar)", done: true },
 ];
 
 const TOOLS = [
@@ -28,9 +29,11 @@ const TOOLS = [
   { id: "file_search", label: "File Search", gated: false },
   { id: "database", label: "Database", gated: false },
   { id: "analytics", label: "Analytics", gated: false },
-  { id: "email", label: "Email", gated: true },
+  { id: "email", label: "Email — 送信", gated: true },
+  { id: "email_read", label: "Email — 受信の確認", gated: false },
+  { id: "calendar", label: "Calendar — 予定の作成", gated: false },
+  { id: "calendar_invite", label: "Calendar — 招待つき", gated: true },
   { id: "social_media", label: "Social Media", gated: true },
-  { id: "calendar", label: "Calendar", gated: false },
   { id: "github", label: "GitHub", gated: false },
   { id: "design", label: "Design", gated: false },
   { id: "deploy", label: "Deploy", gated: true },
@@ -60,6 +63,8 @@ export default function SettingsPage() {
       />
 
       <LiveAgents />
+
+      <Integrations />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="space-y-5">
@@ -149,6 +154,7 @@ export default function SettingsPage() {
             </ul>
             <p className="border-t border-hairline px-5 py-3 text-3xs leading-relaxed text-ink-ghost">
               Approval 指定のツールは、AI社員が実行を要求してもCEOが承認するまで動きません。
+              承認後に実行するのはサーバーで、CEOが画面で読んだ内容がそのまま使われます。
             </p>
           </Panel>
 
