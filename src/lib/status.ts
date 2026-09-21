@@ -1,4 +1,11 @@
-import type { AgentStatus, TaskStatus } from "@/lib/types";
+import type {
+  AgentStatus,
+  ApprovalStatus,
+  NotificationLevel,
+  Priority,
+  ReportStatus,
+  TaskStatus,
+} from "@/lib/types";
 
 export interface StatusMeta {
   label: string;
@@ -26,13 +33,62 @@ export const AGENT_STATUS: Record<AgentStatus, StatusMeta> = {
 };
 
 export const TASK_STATUS: Record<TaskStatus, { label: string; chip: string }> = {
-  QUEUED:    { label: "QUEUED",    chip: "bg-white/5 text-ink-faint" },
-  PLANNING:  { label: "PLANNING",  chip: "bg-accent/10 text-accent-soft" },
-  RUNNING:   { label: "RUNNING",   chip: "bg-live/10 text-live" },
-  WAITING:   { label: "WAITING",   chip: "bg-warn/10 text-warn" },
-  REVIEW:    { label: "REVIEW",    chip: "bg-[#A78BFA]/10 text-[#A78BFA]" },
-  COMPLETED: { label: "COMPLETED", chip: "bg-white/5 text-ink-muted" },
-  FAILED:    { label: "FAILED",    chip: "bg-danger/10 text-danger" },
+  QUEUED:          { label: "QUEUED",          chip: "bg-white/5 text-ink-faint" },
+  PLANNING:        { label: "PLANNING",        chip: "bg-accent/10 text-accent-soft" },
+  RUNNING:         { label: "RUNNING",         chip: "bg-live/10 text-live" },
+  WAITING:         { label: "WAITING",         chip: "bg-warn/10 text-warn" },
+  WAITING_FOR_CEO: { label: "WAITING FOR CEO", chip: "bg-warn/15 text-warn" },
+  REVIEW:          { label: "REVIEW",          chip: "bg-[#A78BFA]/10 text-[#A78BFA]" },
+  COMPLETED:       { label: "COMPLETED",       chip: "bg-white/5 text-ink-muted" },
+  FAILED:          { label: "FAILED",          chip: "bg-danger/10 text-danger" },
+};
+
+export const REPORT_STATUS: Record<
+  ReportStatus,
+  { label: string; chip: string; dot: string }
+> = {
+  DRAFT:             { label: "DRAFT",             chip: "bg-white/5 text-ink-faint",        dot: "bg-ink-ghost" },
+  GENERATING:        { label: "GENERATING",        chip: "bg-accent/10 text-accent-soft",    dot: "bg-accent" },
+  GENERATED:         { label: "GENERATED",         chip: "bg-[#5BC8D8]/10 text-[#5BC8D8]",   dot: "bg-[#5BC8D8]" },
+  PENDING_REVIEW:    { label: "PENDING REVIEW",    chip: "bg-warn/12 text-warn",             dot: "bg-warn" },
+  APPROVED:          { label: "APPROVED",          chip: "bg-live/12 text-live",             dot: "bg-live" },
+  REVISION_REQUIRED: { label: "REVISION REQUIRED", chip: "bg-[#A78BFA]/12 text-[#A78BFA]",   dot: "bg-[#A78BFA]" },
+  REJECTED:          { label: "REJECTED",          chip: "bg-danger/10 text-danger",         dot: "bg-danger" },
+  ARCHIVED:          { label: "ARCHIVED",          chip: "bg-white/5 text-ink-ghost",        dot: "bg-ink-ghost" },
+};
+
+export const APPROVAL_STATUS: Record<ApprovalStatus, { label: string; chip: string }> = {
+  pending:            { label: "PENDING",            chip: "bg-warn/12 text-warn" },
+  reviewing:          { label: "REVIEWING",          chip: "bg-accent/12 text-accent-soft" },
+  approved:           { label: "APPROVED",           chip: "bg-live/12 text-live" },
+  rejected:           { label: "REJECTED",           chip: "bg-danger/10 text-danger" },
+  revision_requested: { label: "REVISION REQUESTED", chip: "bg-[#A78BFA]/12 text-[#A78BFA]" },
+};
+
+export const NOTIFICATION_LEVEL: Record<
+  NotificationLevel,
+  { label: string; chip: string; dot: string; banner: boolean }
+> = {
+  INFO:              { label: "INFO",     chip: "bg-white/5 text-ink-faint",      dot: "bg-ink-ghost", banner: false },
+  SUCCESS:           { label: "SUCCESS",  chip: "bg-live/10 text-live",           dot: "bg-live",      banner: false },
+  WARNING:           { label: "WARNING",  chip: "bg-warn/10 text-warn",           dot: "bg-warn",      banner: false },
+  APPROVAL_REQUIRED: { label: "APPROVAL", chip: "bg-warn/15 text-warn",           dot: "bg-warn",      banner: true },
+  ERROR:             { label: "ERROR",    chip: "bg-danger/10 text-danger",       dot: "bg-danger",    banner: true },
+  URGENT:            { label: "URGENT",   chip: "bg-danger/15 text-danger",       dot: "bg-danger",    banner: true },
+};
+
+export const PRIORITY_ORDER: Record<Priority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+export const PRIORITY_BADGE: Record<Priority, { label: string; chip: string }> = {
+  urgent: { label: "URGENT", chip: "bg-danger/15 text-danger" },
+  high:   { label: "HIGH",   chip: "bg-warn/12 text-warn" },
+  medium: { label: "MEDIUM", chip: "bg-white/5 text-ink-muted" },
+  low:    { label: "LOW",    chip: "bg-white/5 text-ink-ghost" },
 };
 
 export const PRIORITY_META = {
@@ -54,6 +110,10 @@ export const ACTIVITY_META: Record<string, { label: string; tone: string }> = {
   "approval.requested": { label: "APPROVAL",  tone: "text-warn" },
   "approval.approved":  { label: "APPROVED",  tone: "text-live" },
   "approval.rejected":  { label: "REJECTED",  tone: "text-danger" },
+  "approval.revision_requested": { label: "REVISION", tone: "text-[#A78BFA]" },
+  "report.approved":    { label: "APPROVED", tone: "text-live" },
+  "report.rejected":    { label: "REJECTED", tone: "text-danger" },
+  "report.revision_requested":   { label: "REVISION", tone: "text-[#A78BFA]" },
   "report.generated":   { label: "REPORT",    tone: "text-ink-muted" },
   "insight.found":      { label: "INSIGHT",   tone: "text-[#5BC8D8]" },
 };

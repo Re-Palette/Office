@@ -4,13 +4,18 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
+  ArrowUpRight,
   Banknote,
   Check,
   Eye,
+  FileSignature,
+  FileText,
+  ListChecks,
   Mail,
   Plug,
   Rocket,
   Share2,
+  Sparkles,
   X,
 } from "lucide-react";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
@@ -18,6 +23,7 @@ import { useCompany } from "@/lib/store";
 import { formatCountdown, formatRelative } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Approval, ApprovalKind } from "@/lib/types";
+import { PRIORITY_BADGE } from "@/lib/status";
 import { Avatar, Button, Chip, Empty } from "@/components/ui/primitives";
 
 const KIND_META: Record<ApprovalKind, { label: string; icon: typeof Rocket }> = {
@@ -27,6 +33,10 @@ const KIND_META: Record<ApprovalKind, { label: string; icon: typeof Rocket }> = 
   email: { label: "EMAIL", icon: Mail },
   social_post: { label: "SOCIAL POST", icon: Share2 },
   deploy: { label: "DEPLOY", icon: Rocket },
+  report: { label: "REPORT REVIEW", icon: FileText },
+  task: { label: "TASK", icon: ListChecks },
+  contract: { label: "CONTRACT", icon: FileSignature },
+  decision: { label: "AI DECISION", icon: Sparkles },
 };
 
 const RISK_META = {

@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PlanGraph } from "@/components/command/plan-graph";
 import { CollaborationFlows } from "@/components/company/collaboration";
 import { CeoInbox } from "@/components/company/ceo-inbox";
+import { ApprovalQueue } from "@/components/company/ceo-action";
 
 export default function CommandPage() {
   const plans = useCompany((s) => s.plans);
@@ -130,6 +131,14 @@ export default function CommandPage() {
         </div>
 
         <div className="space-y-5">
+          <Panel className="overflow-hidden">
+            <PanelHeader
+              title="Approval Queue"
+              hint="今、あなたが判断しないと進まないもの"
+            />
+            <ApprovalQueue limit={10} />
+          </Panel>
+
           <Panel className="overflow-hidden">
             <PanelHeader
               title="CEO Inbox"

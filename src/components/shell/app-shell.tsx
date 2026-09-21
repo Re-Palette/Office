@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { advanceSimulation, useCompany } from "@/lib/store";
 import { CLOCK_INTERVAL, SIM_INTERVAL } from "@/lib/engine/simulator";
 import { readSession } from "@/lib/auth";
+import { NotificationBanner } from "@/components/company/notifications";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { RightPanel } from "./right-panel";
@@ -16,8 +17,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const [checked, setChecked] = useState(false);
 
-  const startClock = useCompany((s) => s.startClock);
+  const hydrateDecisions = useCompany((s) => s.hydrateDecisions);
   const tick = useCompany((s) => s.tick);
+  const runScheduledReports = useCompany((s) => s.runScheduledReports);
 
   /* Auth gate — replaced by a Supabase session listener in Phase 3. */
   useEffect(() => {
@@ -35,18 +37,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  /* Company clock. */
+  /* Company clock, and the CEO's stored decisions replayed over the seed. */
   useEffect(() => {
-    startClock();
+    hydrateDecisions();
     const id = window.setInterval(tick, CLOCK_INTERVAL);
     return () => window.clearInterval(id);
-  }, [startClock, tick]);
+  }, [hydrateDecisions, tick]);
 
   /* Mock agent activity stream. */
   useEffect(() => {
     const id = window.setInterval(advanceSimulation, SIM_INTERVAL);
     return () => window.clearInterval(id);
   }, []);
+
+  /* Scheduled jobs — the Daily Executive Report fires when the clock reaches it. */
+  useEffect(() => {
+    const id = window.setInterval(runScheduledReports, 15_000);
+    return () => window.clearInterval(id);
+  }, [runScheduledReports]);
 
   /* Close the mobile drawer on navigation. */
   useEffect(() => {
@@ -97,6 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
+        <NotificationBanner />
         <div className="flex min-h-0 flex-1">
           <main className="scroll-slim min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-[1800px] px-4 py-5 lg:px-7 lg:py-7 2xl:max-w-[2100px]">

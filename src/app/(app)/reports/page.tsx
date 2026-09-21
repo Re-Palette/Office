@@ -1,49 +1,132 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, ArrowRight, Sparkles, Sunrise } from "lucide-react";
+import { FilePlus2, Search, Sparkles } from "lucide-react";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
-import { DAILY_REPORT, MORNING_BRIEFING, NEXT_SCHEDULED } from "@/lib/company/reports";
+import { DEPARTMENTS } from "@/lib/company/departments";
+import { PROJECTS, PROJECTS_BY_ID } from "@/lib/company/projects";
+import { NEXT_SCHEDULED } from "@/lib/company/reports";
 import { useCompany } from "@/lib/store";
-import { formatCountdown, formatDate, formatTime } from "@/lib/time";
+import { formatCountdown, formatDay, formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { Avatar, Button, Chip, Panel, PanelHeader } from "@/components/ui/primitives";
+import { REPORT_TYPE_LABEL, type Report, type ReportStatus, type ReportType } from "@/lib/types";
+import {
+  Avatar,
+  Button,
+  Chip,
+  Empty,
+  FilterTabs,
+  Panel,
+  PanelHeader,
+} from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
+import { PdfLink, ReportStatusChip, ReportTitleLink } from "@/components/reports/report-bits";
 
-type Tab = "daily" | "morning";
+type Bucket =
+  | "all"
+  | "pending"
+  | "approved"
+  | "draft"
+  | "generating"
+  | "revision"
+  | "archived";
 
-export default function ReportsPage() {
+const BUCKETS: { id: Bucket; label: string; match: (s: ReportStatus) => boolean }[] = [
+  { id: "all", label: "All", match: () => true },
+  { id: "pending", label: "CEO確認待ち", match: (s) => s === "PENDING_REVIEW" },
+  { id: "revision", label: "修正依頼", match: (s) => s === "REVISION_REQUIRED" },
+  { id: "generating", label: "作成中", match: (s) => s === "GENERATING" || s === "GENERATED" },
+  { id: "draft", label: "下書き", match: (s) => s === "DRAFT" },
+  { id: "approved", label: "承認済み", match: (s) => s === "APPROVED" },
+  { id: "archived", label: "アーカイブ", match: (s) => s === "ARCHIVED" || s === "REJECTED" },
+];
+
+/** Compact labels for the table — the "Report" suffix is implied by the column. */
+const SHORT_TYPE: Record<ReportType, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  project: "Project",
+  department: "Department",
+  research: "Research",
+  task_completion: "Task Completion",
+  executive: "Executive",
+  briefing: "Briefing",
+};
+
+const GENERATABLE: ReportType[] = [
+  "daily",
+  "weekly",
+  "executive",
+  "project",
+  "department",
+  "research",
+  "task_completion",
+];
+
+export default function ReportCenterPage() {
+  const reports = useCompany((s) => s.reports);
   const now = useCompany((s) => s.now);
   const schedule = useCompany((s) => s.schedule);
-  const [tab, setTab] = useState<Tab>("daily");
+
+  const [bucket, setBucket] = useState<Bucket>("all");
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const match = BUCKETS.find((b) => b.id === bucket)!.match;
+    return reports
+      .filter((r) => match(r.status))
+      .filter((r) =>
+        q
+          ? `${r.title} ${REPORT_TYPE_LABEL[r.type]} ${r.createdBy}`.toLowerCase().includes(q)
+          : true,
+      )
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }, [reports, bucket, query]);
+
+  const pending = reports.filter((r) => r.status === "PENDING_REVIEW");
 
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow={<span className="label">Scheduled Intelligence</span>}
+        eyebrow={<span className="label">Report Center</span>}
         title="Reports"
-        description="AI会社が毎日あなたのために生成する、朝のブリーフィングと夜の経営報告。"
+        description="AI社員が仕事の成果から作成した正式なレポート。PDFで出力され、CEOの確認を経て確定します。"
         actions={
-          <div className="flex gap-1">
-            <Button
-              variant={tab === "daily" ? "primary" : "outline"}
-              size="sm"
-              onClick={() => setTab("daily")}
-            >
-              Daily Executive
-            </Button>
-            <Button
-              variant={tab === "morning" ? "primary" : "outline"}
-              size="sm"
-              onClick={() => setTab("morning")}
-            >
-              Morning Briefing
-            </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-ghost"
+                strokeWidth={1.75}
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="レポートを検索"
+                aria-label="Search reports"
+                className="h-9 w-[200px] rounded-lg border border-hairline bg-white/[0.03] pl-9 pr-3 text-xs text-ink placeholder:text-ink-ghost focus:border-accent-line focus:outline-none"
+              />
+            </div>
           </div>
         }
       />
+
+      {pending.length > 0 && (
+        <Link
+          href={`/reports/${pending[0].id}`}
+          className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/25 bg-warn/[0.06] px-5 py-3.5 transition-colors hover:bg-warn/[0.1]"
+        >
+          <span className="num text-xl font-semibold text-warn">{pending.length}</span>
+          <span className="text-xs text-warn/90">
+            {pending.length === 1 ? "report is" : "reports are"} waiting for your review
+          </span>
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-warn">
+            Review →
+          </span>
+        </Link>
+      )}
 
       <div className="grid gap-px overflow-hidden rounded-2xl border border-hairline bg-hairline sm:grid-cols-3">
         <ScheduleCell
@@ -63,7 +146,28 @@ export default function ReportsPage() {
         />
       </div>
 
-      {tab === "daily" ? <DailyReport /> : <MorningBriefing />}
+      <GenerateReport />
+
+      <Panel className="px-4 py-2.5">
+        <FilterTabs<Bucket>
+          value={bucket}
+          onChange={setBucket}
+          options={BUCKETS.map((b) => ({
+            id: b.id,
+            label: b.label,
+            count: reports.filter((r) => b.match(r.status)).length,
+          }))}
+        />
+      </Panel>
+
+      <Panel className="overflow-hidden">
+        <PanelHeader title="Reports" hint={`${filtered.length} shown`} />
+        {filtered.length === 0 ? (
+          <Empty title="該当するレポートはありません" />
+        ) : (
+          <ReportTable reports={filtered} now={now} />
+        )}
+      </Panel>
     </div>
   );
 }
@@ -78,200 +182,236 @@ function ScheduleCell({ label, time, next }: { label: string; time: string; next
   );
 }
 
-function DailyReport() {
-  const now = useCompany((s) => s.now);
+/* ── Table ────────────────────────────────────────────────────────────────── */
 
+function ReportTable({ reports, now }: { reports: Report[]; now: number }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-      id="daily"
-      className="space-y-5"
-    >
-      <Panel className="overflow-hidden">
-        <PanelHeader
-          title="Daily Executive Report"
-          hint={formatDate(now)}
-          action={
-            <Chip className="bg-accent/12 text-accent-soft">
-              Generated by COO
-            </Chip>
-          }
-        />
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[980px] border-collapse">
+        <thead>
+          <tr className="border-b border-hairline">
+            {[
+              "Report Title",
+              "Type",
+              "Created By",
+              "Related Project",
+              "Created At",
+              "Status",
+            ].map((h) => (
+              <th
+                key={h}
+                className="px-3 py-2.5 text-left font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost"
+              >
+                {h}
+              </th>
+            ))}
+            {/* Pinned: the confirmation state and PDF link must never scroll away. */}
+            <th className="sticky right-0 z-10 border-l border-hairline bg-surface px-3 py-2.5 text-left font-mono text-[9px] uppercase tracking-[0.16em] text-ink-ghost">
+              Confirmation
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline">
+          {reports.map((report, i) => {
+            const author = AGENTS_BY_ID[report.createdBy];
+            const project = report.projectId ? PROJECTS_BY_ID[report.projectId] : undefined;
+            const department = report.departmentId
+              ? DEPARTMENTS.find((d) => d.id === report.departmentId)
+              : undefined;
+            const needsReview = report.status === "PENDING_REVIEW";
 
-        <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-5">
-          {DAILY_REPORT.metrics.map((m) => (
-            <div key={m.label} className="bg-surface/70 px-5 py-4">
-              <div className="label">{m.label}</div>
-              <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="num text-2xl font-semibold leading-none tracking-tight text-ink">
-                  {m.value}
-                </span>
-                <span
+            return (
+              <motion.tr
+                key={report.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.25, delay: Math.min(i * 0.02, 0.2) }}
+                className={cn(
+                  "transition-colors hover:bg-white/[0.025]",
+                  needsReview && "bg-warn/[0.035]",
+                )}
+              >
+                <td className="w-[240px] max-w-[240px] px-3 py-3">
+                  <ReportTitleLink report={report} />
+                </td>
+                <td className="px-3 py-3">
+                  <Chip>{SHORT_TYPE[report.type]}</Chip>
+                </td>
+                <td className="px-3 py-3">
+                  {author && (
+                    <Link
+                      href={`/employees/${author.id}`}
+                      className="flex items-center gap-1.5 transition-colors hover:text-accent-soft"
+                    >
+                      <Avatar name={author.name} accent={author.accent} size="xs" />
+                      <span className="text-[11px] text-ink-muted">{author.role}</span>
+                    </Link>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {project ? (
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="text-[11px] text-ink-muted transition-colors hover:text-accent-soft"
+                    >
+                      {project.name}
+                    </Link>
+                  ) : department ? (
+                    <Link
+                      href={`/departments/${department.id}`}
+                      className="text-[11px] text-ink-muted transition-colors hover:text-accent-soft"
+                    >
+                      {department.name}
+                    </Link>
+                  ) : (
+                    <span className="text-[11px] text-ink-ghost">全社</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3">
+                  <div className="num text-[11px] text-ink-muted">
+                    {formatDay(report.createdAt)}
+                  </div>
+                  <div className="num text-[10px] text-ink-ghost">
+                    {formatTime(report.createdAt)}
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  <ReportStatusChip status={report.status} />
+                </td>
+                <td
                   className={cn(
-                    "num text-[10px] font-medium",
-                    m.delta.startsWith("-") ? "text-live" : "text-live",
+                    "sticky right-0 z-10 w-[210px] whitespace-nowrap border-l border-hairline px-3 py-3",
+                    needsReview ? "bg-[#1b1a16]" : "bg-surface",
                   )}
                 >
-                  {m.delta}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="border-t border-hairline px-5 py-5 lg:px-7 lg:py-6">
-          <span className="label">Today&rsquo;s summary</span>
-          <p className="mt-2.5 max-w-4xl text-sm leading-[1.85] text-ink-muted">
-            {DAILY_REPORT.summary}
-          </p>
-        </div>
-      </Panel>
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Panel className="overflow-hidden">
-          <PanelHeader title="Highlights" hint="部署別の主要成果" />
-          <ul className="divide-y divide-hairline">
-            {DAILY_REPORT.highlights.map((h, i) => {
-              const agent = AGENTS_BY_ID[h.agentId];
-              return (
-                <li key={i} className="flex items-start gap-3 px-5 py-3.5">
-                  {agent && <Avatar name={agent.name} accent={agent.accent} size="sm" />}
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={agent ? `/employees/${agent.id}` : "#"}
-                      className="text-[11px] font-semibold text-ink transition-colors hover:text-accent-soft"
+                  <div className="flex flex-col gap-1.5">
+                    <span
+                      className={cn(
+                        "font-mono text-[10px] uppercase tracking-[0.14em]",
+                        needsReview
+                          ? "text-warn"
+                          : report.status === "APPROVED"
+                            ? "text-live"
+                            : report.status === "REVISION_REQUIRED"
+                              ? "text-[#A78BFA]"
+                              : "text-ink-ghost",
+                      )}
                     >
-                      {agent?.role ?? h.agentId}
-                    </Link>
-                    <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{h.text}</p>
+                      {needsReview
+                        ? "Pending Review"
+                        : report.status === "APPROVED"
+                          ? `Approved${report.reviewedAt ? ` · ${formatDay(report.reviewedAt)}` : ""}`
+                          : report.status === "REJECTED"
+                            ? "Rejected"
+                            : report.status === "REVISION_REQUIRED"
+                              ? "Revision requested"
+                              : "No review required"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <PdfLink report={report} />
+                      {needsReview && (
+                        <Link
+                          href={`/reports/${report.id}`}
+                          className="rounded-md bg-warn/12 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-warn transition-colors hover:bg-warn/20"
+                        >
+                          Review
+                        </Link>
+                      )}
+                    </div>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Panel>
-
-        <div className="space-y-5">
-          <Panel className="overflow-hidden">
-            <PanelHeader title="Risks" hint="注意が必要な事項" />
-            <ul className="divide-y divide-hairline">
-              {DAILY_REPORT.risks.map((r, i) => (
-                <li key={i} className="flex items-start gap-3 px-5 py-3.5">
-                  <AlertTriangle
-                    className={cn(
-                      "mt-0.5 h-3.5 w-3.5 shrink-0",
-                      r.level === "high" ? "text-danger" : "text-warn",
-                    )}
-                    strokeWidth={1.75}
-                  />
-                  <p className="text-xs leading-relaxed text-ink-muted">{r.text}</p>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-
-          <Panel className="overflow-hidden">
-            <PanelHeader
-              title="Tomorrow's recommended actions"
-              action={<Sparkles className="h-3.5 w-3.5 text-accent-soft" strokeWidth={1.75} />}
-            />
-            <ul className="divide-y divide-hairline">
-              {DAILY_REPORT.tomorrow.map((t, i) => (
-                <li key={i} className="flex items-start gap-3 px-5 py-3">
-                  <span className="num mt-0.5 shrink-0 text-[10px] text-ink-ghost">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <p className="text-xs leading-relaxed text-ink-muted">{t}</p>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        </div>
-      </div>
-    </motion.div>
+                </td>
+              </motion.tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function MorningBriefing() {
+/* ── Generation ───────────────────────────────────────────────────────────── */
+
+function GenerateReport() {
+  const generate = useCompany((s) => s.generateReport);
+  const [type, setType] = useState<ReportType>("daily");
+  const [projectId, setProjectId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lastId, setLastId] = useState<string | null>(null);
+
+  const needsProject = type === "project";
+
+  async function run() {
+    setBusy(true);
+    // A beat of latency so the generation reads as work, not a state flip.
+    await new Promise((r) => setTimeout(r, 650));
+    const report = generate({
+      type,
+      projectId: needsProject ? projectId || PROJECTS[0].id : undefined,
+      departmentId: type === "department" ? "marketing" : undefined,
+    });
+    setLastId(report.id);
+    setBusy(false);
+  }
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-      id="morning"
-      className="space-y-5"
-    >
-      <Panel className="relative overflow-hidden">
-        <div
-          className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-warn/10 blur-[100px]"
-          aria-hidden
-        />
-        <div className="relative px-5 py-6 lg:px-8 lg:py-8">
-          <div className="flex items-center gap-2">
-            <Sunrise className="h-4 w-4 text-warn" strokeWidth={1.75} />
-            <span className="label text-warn">Morning Briefing</span>
-            <span className="num text-[10px] text-ink-ghost">
-              · generated {formatTime(MORNING_BRIEFING.generatedAt)}
-            </span>
-          </div>
-          <p className="mt-3 max-w-3xl text-lg font-medium leading-relaxed tracking-tight text-ink lg:text-xl">
-            {MORNING_BRIEFING.opening}
-          </p>
-        </div>
-      </Panel>
+    <Panel className="overflow-hidden">
+      <PanelHeader
+        title="Generate a report"
+        hint="AI社員が実データを集約して作成します"
+        action={<Sparkles className="h-3.5 w-3.5 text-accent-soft" strokeWidth={1.75} />}
+      />
+      <div className="flex flex-wrap items-end gap-3 px-5 py-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="label">Report type</span>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value as ReportType)}
+            className="h-9 w-[210px] rounded-lg border border-hairline bg-white/[0.03] px-2.5 text-xs text-ink focus:border-accent-line focus:outline-none"
+          >
+            {GENERATABLE.map((t) => (
+              <option key={t} value={t} className="bg-surface-overlay">
+                {REPORT_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <div className="relative">
-        <span
-          className="pointer-events-none absolute bottom-6 left-[18px] top-6 w-px bg-hairline lg:left-[22px]"
-          aria-hidden
-        />
-        <ol className="space-y-3">
-          {MORNING_BRIEFING.sections.map((section, i) => {
-            const agent = AGENTS_BY_ID[section.agentId];
-            return (
-              <motion.li
-                key={section.label}
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.06 }}
-                className="relative flex gap-4"
-              >
-                <span className="relative z-10 mt-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-hairline bg-surface lg:h-11 lg:w-11">
-                  {agent ? (
-                    <Avatar name={agent.name} accent={agent.accent} size="sm" />
-                  ) : (
-                    <ArrowRight className="h-3.5 w-3.5 text-ink-ghost" strokeWidth={1.75} />
-                  )}
-                </span>
+        {needsProject && (
+          <label className="flex flex-col gap-1.5">
+            <span className="label">Project</span>
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="h-9 w-[190px] rounded-lg border border-hairline bg-white/[0.03] px-2.5 text-xs text-ink focus:border-accent-line focus:outline-none"
+            >
+              {PROJECTS.map((p) => (
+                <option key={p.id} value={p.id} className="bg-surface-overlay">
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
-                <Panel className="min-w-0 flex-1 px-5 py-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="label">{section.label}</span>
-                    {agent && (
-                      <Link
-                        href={`/employees/${agent.id}`}
-                        className="text-[10px] text-ink-ghost transition-colors hover:text-accent-soft"
-                      >
-                        {agent.role}
-                      </Link>
-                    )}
-                  </div>
-                  <ul className="mt-2 space-y-1.5">
-                    {section.lines.map((line, li) => (
-                      <li key={li} className="flex items-start gap-2.5">
-                        <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent/60" />
-                        <span className="text-xs leading-relaxed text-ink-muted">{line}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </Panel>
-              </motion.li>
-            );
-          })}
-        </ol>
+        <Button variant="primary" size="md" onClick={run} disabled={busy}>
+          <FilePlus2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {busy ? "Generating…" : "Generate"}
+        </Button>
+
+        {lastId && !busy && (
+          <Link
+            href={`/reports/${lastId}`}
+            className="inline-flex h-9 items-center rounded-lg bg-live/12 px-3 text-xs font-medium text-live transition-colors hover:bg-live/20"
+          >
+            生成しました — 開く
+          </Link>
+        )}
+
+        <p className="w-full text-[11px] leading-relaxed text-ink-ghost">
+          生成されたレポートはPDF化され、CEO確認待ちとして Report Center と CEO Inbox
+          に追加されます。通知も自動で送信されます。
+        </p>
       </div>
-    </motion.div>
+    </Panel>
   );
 }

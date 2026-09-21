@@ -18,13 +18,13 @@ const ROWS: Row[] = [
   ["t-1001", "Dashboard authentication の実装", "RUNNING", "high", "cto", "engineering", "friday", 92, 64, "Supabase Auth を用いたCEOログインと、セッション保持・権限判定を実装する。"],
   ["t-1002", "Command Center UI の実装", "RUNNING", "high", "frontend_ai", "engineering", "friday", 180, 78, "CEOの自然言語指示を受け取り、タスク分解の過程を可視化する画面を実装する。"],
   ["t-1003", "Agent Orchestrator API 設計", "PLANNING", "high", "backend_ai", "engineering", "friday", 240, 35, "各AI社員の実行・委譲・報告を扱うオーケストレーション層のインターフェースを設計する。"],
-  ["t-1004", "本番環境への Deploy", "WAITING", "critical", "infra_ai", "engineering", "friday", 40, 95, "認証基盤を含むビルドを本番へ反映する。CEO承認待ち。"],
+  ["t-1004", "本番環境への Deploy", "WAITING_FOR_CEO", "critical", "infra_ai", "engineering", "friday", 40, 95, "認証基盤を含むビルドを本番へ反映する。CEO承認待ち。"],
   ["t-1005", "Dashboard のリグレッション検証", "RUNNING", "normal", "qa_ai", "engineering", "friday", 60, 48, "主要導線のE2Eを再実行し、前回リリースからの劣化を検出する。"],
   ["t-1006", "Activity Event スキーマ整備", "RUNNING", "normal", "data_eng", "engineering", "friday", 300, 55, "全AI社員の行動を単一のイベント表に集約できるスキーマへ統一する。"],
 
   ["t-2001", "Instagram トレンド分析", "COMPLETED", "high", "cmo", "marketing", "re_palette", 420, 100, "直近30日の投稿反応からトレンド候補を抽出し、施策仮説へ変換する。"],
   ["t-2002", "Re-Palette note記事の執筆", "RUNNING", "normal", "content_ai", "marketing", "re_palette", 110, 42, "ブランドの世界観を伝える長文記事の初稿を作成する。"],
-  ["t-2003", "Instagram 投稿3案の作成", "REVIEW", "high", "social_ai", "marketing", "re_palette", 55, 100, "トレンド分析の結果をもとに投稿案を3つ作成。CEO承認後に公開。"],
+  ["t-2003", "Instagram 投稿3案の作成", "WAITING_FOR_CEO", "high", "social_ai", "marketing", "re_palette", 55, 100, "トレンド分析の結果をもとに投稿案を3つ作成。CEO承認後に公開。"],
   ["t-2004", "競合キーワードギャップ分析", "RUNNING", "normal", "seo_ai", "marketing", "re_palette", 150, 61, "競合が獲得していて自社が取れていない検索語を洗い出す。"],
   ["t-2005", "CAC / LTV の再計算", "RUNNING", "normal", "ads_ai", "marketing", undefined, 200, 70, "チャネル別の獲得単価と生涯価値を最新データで再計算する。"],
 
@@ -32,7 +32,7 @@ const ROWS: Row[] = [
   ["t-3002", "美容D2C企業リストの拡充", "COMPLETED", "normal", "lead_ai", "sales", "re_palette", 130, 100, "条件に合致する企業を20件追加し、担当者情報を整理する。"],
   ["t-3003", "提携提案書のドラフト作成", "RUNNING", "normal", "partnership_ai", "sales", "re_palette", 95, 44, "提携スキームと双方の利得を明示した提案書を作る。"],
   ["t-3004", "NEXY Summit 向け提案資料", "RUNNING", "high", "proposal_ai", "sales", "newtone", 160, 52, "出展・登壇に向けた提案資料を作成する。"],
-  ["t-3005", "外部メール3通の送信", "WAITING", "high", "outreach_ai", "sales", "re_palette", 30, 100, "初回接触メール。CEO承認後に送信。"],
+  ["t-3005", "外部メール3通の送信", "WAITING_FOR_CEO", "high", "outreach_ai", "sales", "re_palette", 30, 100, "初回接触メール。CEO承認後に送信。"],
 
   ["t-4001", "今月の収支レポート再集計", "RUNNING", "high", "cfo", "finance", undefined, 85, 72, "9月の売上・費用を確定値で再集計し、予実差を説明する。"],
   ["t-4002", "9月分の取引分類", "COMPLETED", "normal", "accounting_ai", "finance", undefined, 210, 100, "取引を勘定科目へ分類し、未分類をゼロにする。"],
@@ -91,7 +91,35 @@ function toTask(row: Row): Task {
   };
 }
 
-export const TASKS: Task[] = ROWS.map(toTask);
+const BLOCKED: Record<string, { reason: string; approvalId: string }> = {
+  "t-1004": {
+    reason: "Production deployment requires CEO approval.",
+    approvalId: "ap-1",
+  },
+  "t-2003": {
+    reason: "External publishing requires CEO approval.",
+    approvalId: "ap-2",
+  },
+  "t-3005": {
+    reason: "Sending external email is irreversible and requires CEO approval.",
+    approvalId: "ap-3",
+  },
+  "t-8004": {
+    reason: "Connecting an external service requires CEO approval.",
+    approvalId: "ap-5",
+  },
+};
+
+export const TASKS: Task[] = ROWS.map(toTask).map((task) =>
+  BLOCKED[task.id]
+    ? {
+        ...task,
+        status: task.id === "t-8004" ? task.status : ("WAITING_FOR_CEO" as const),
+        blockedReason: BLOCKED[task.id].reason,
+        approvalId: BLOCKED[task.id].approvalId,
+      }
+    : task,
+);
 
 export const TASKS_BY_ID: Record<string, Task> = Object.fromEntries(
   TASKS.map((t) => [t.id, t]),

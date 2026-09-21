@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { CornerDownLeft, Search } from "lucide-react";
+import { CornerDownLeft, Search, ShieldAlert } from "lucide-react";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import { PROJECTS_BY_ID } from "@/lib/company/projects";
@@ -25,7 +25,14 @@ import {
 } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 
-const COLUMNS: TaskStatus[] = ["PLANNING", "RUNNING", "WAITING", "REVIEW", "COMPLETED"];
+const COLUMNS: TaskStatus[] = [
+  "PLANNING",
+  "RUNNING",
+  "WAITING_FOR_CEO",
+  "WAITING",
+  "REVIEW",
+  "COMPLETED",
+];
 
 type Scope = "all" | "open" | "blocked" | (typeof DEPARTMENTS)[number]["id"];
 
@@ -44,7 +51,10 @@ export default function TasksPage() {
       .filter((t) => {
         if (scope === "all") return true;
         if (scope === "open") return t.status !== "COMPLETED" && t.status !== "FAILED";
-        if (scope === "blocked") return t.status === "WAITING" || t.status === "REVIEW";
+        if (scope === "blocked")
+          return (
+            t.status === "WAITING" || t.status === "WAITING_FOR_CEO" || t.status === "REVIEW"
+          );
         return t.department === scope;
       })
       .filter((t) =>
@@ -120,7 +130,12 @@ export default function TasksPage() {
             {
               id: "blocked",
               label: "Needs attention",
-              count: tasks.filter((t) => t.status === "WAITING" || t.status === "REVIEW").length,
+              count: tasks.filter(
+                (t) =>
+                  t.status === "WAITING" ||
+                  t.status === "WAITING_FOR_CEO" ||
+                  t.status === "REVIEW",
+              ).length,
             },
             ...DEPARTMENTS.map((d) => ({
               id: d.id as Scope,
@@ -132,7 +147,7 @@ export default function TasksPage() {
       </Panel>
 
       {/* Board */}
-      <div className="grid gap-4 lg:grid-cols-3 2xl:grid-cols-5">
+      <div className="grid gap-4 lg:grid-cols-3 2xl:grid-cols-6">
         {byStatus.map((column) => (
           <div key={column.status} className="flex min-w-0 flex-col">
             <div className="mb-2.5 flex items-center gap-2 px-1">
@@ -160,6 +175,7 @@ export default function TasksPage() {
 }
 
 function TaskCard({ task, index }: { task: Task; index: number }) {
+  const router = useRouter();
   const now = useCompany((s) => s.now);
   const agent = AGENTS_BY_ID[task.assignedAgent];
   const project = task.project ? PROJECTS_BY_ID[task.project] : undefined;
@@ -185,6 +201,26 @@ function TaskCard({ task, index }: { task: Task; index: number }) {
       <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-ink-faint">
         {task.description}
       </p>
+
+      {task.status === "WAITING_FOR_CEO" && (
+        <div className="mt-2 rounded-lg border border-warn/25 bg-warn/[0.06] px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <ShieldAlert className="h-3 w-3 shrink-0 text-warn" strokeWidth={1.75} />
+            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-warn">
+              Waiting for CEO
+            </span>
+          </div>
+          {task.blockedReason && (
+            <p className="mt-1 text-[10px] leading-relaxed text-warn/90">{task.blockedReason}</p>
+          )}
+          <button
+            onClick={() => router.push("/command")}
+            className="mt-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-warn transition-opacity hover:opacity-80"
+          >
+            Review task →
+          </button>
+        </div>
+      )}
 
       {task.status !== "COMPLETED" && (
         <div className="mt-2.5 flex items-center gap-2">

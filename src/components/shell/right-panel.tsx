@@ -1,16 +1,14 @@
 "use client";
 
-import { useState } from "react";
 import { X } from "lucide-react";
 import { useCompany } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { ActivityFeed } from "@/components/company/activity-feed";
 import { CeoInbox } from "@/components/company/ceo-inbox";
+import { ApprovalQueue } from "@/components/company/ceo-action";
 import { CeoChat } from "@/components/company/ceo-chat";
 import { Notifications } from "@/components/company/notifications";
 import { LiveDot } from "@/components/ui/primitives";
-
-type Tab = "activity" | "inbox" | "chat" | "alerts";
 
 export function RightPanel() {
   const open = useCompany((s) => s.rightPanelOpen);
@@ -18,13 +16,13 @@ export function RightPanel() {
   const activity = useCompany((s) => s.activity);
   const approvals = useCompany((s) => s.approvals);
   const notifications = useCompany((s) => s.notifications);
-
-  const [tab, setTab] = useState<Tab>("activity");
+  const tab = useCompany((s) => s.panelTab);
+  const setTab = useCompany((s) => s.setPanelTab);
 
   const pending = approvals.filter((a) => a.status === "pending" || a.status === "reviewing").length;
   const unread = notifications.filter((n) => !n.read).length;
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
+  const tabs: { id: typeof tab; label: string; count?: number }[] = [
     { id: "activity", label: "LIVE" },
     { id: "inbox", label: "INBOX", count: pending },
     { id: "chat", label: "CHAT" },
@@ -101,10 +99,14 @@ export function RightPanel() {
           {tab === "inbox" && (
             <>
               <div className="border-b border-hairline px-4 py-2.5">
-                <span className="label">CEO Inbox</span>
+                <span className="label">Approval Queue</span>
                 <p className="mt-0.5 text-[10px] text-ink-ghost">
-                  承認されるまで、AI社員は実行しません
+                  あなたが判断しないとAI会社が進まないものだけ
                 </p>
+              </div>
+              <ApprovalQueue limit={8} />
+              <div className="border-y border-hairline px-4 py-2.5">
+                <span className="label">Full requests</span>
               </div>
               <CeoInbox compact />
             </>

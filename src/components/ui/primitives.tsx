@@ -137,7 +137,7 @@ export function Chip({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-2xs font-medium",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-medium",
         mono && "font-mono uppercase tracking-wider",
         "bg-white/5 text-ink-muted",
         className,

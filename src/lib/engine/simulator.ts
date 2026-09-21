@@ -268,3 +268,122 @@ const WAKE_TASKS = [
 export const SIM_INTERVAL = 3200;
 export const CLOCK_INTERVAL = 1000;
 export const MAX_ACTIVITY = 200;
+
+/* ── Spontaneous approval requests ────────────────────────────────────────── */
+
+export interface PendingRequestSeed {
+  agentId: string;
+  kind: "social_post" | "email" | "deploy" | "budget" | "external_service" | "contract";
+  title: string;
+  summary: string;
+  impact: string;
+  risk: "low" | "medium" | "high";
+  priority: "urgent" | "high" | "medium" | "low";
+  payload: { label: string; value: string }[];
+}
+
+/**
+ * The moments an AI employee reaches the edge of its own authority. It stops
+ * and asks rather than acting — which is the whole point of the approval gate.
+ */
+const REQUEST_LIBRARY: PendingRequestSeed[] = [
+  {
+    agentId: "social_ai",
+    kind: "social_post",
+    title: "X(Twitter) 投稿の公開",
+    summary: "Re-Palette の新しい訴求軸で投稿案を2件作成しました。",
+    impact: "承認すると外部SNSへ公開され、取り消しても閲覧履歴は残ります。",
+    risk: "medium",
+    priority: "high",
+    payload: [
+      { label: "Account", value: "@re_palette" },
+      { label: "Posts", value: "2 (thread)" },
+      { label: "Reviewed by", value: "CMO" },
+    ],
+  },
+  {
+    agentId: "outreach_ai",
+    kind: "email",
+    title: "提携候補2社への follow-up メール",
+    summary: "初回接触から5日経過した候補へ、再接触の文面を用意しました。",
+    impact: "承認すると実在する企業へメールが送信されます。撤回はできません。",
+    risk: "high",
+    priority: "urgent",
+    payload: [
+      { label: "Recipients", value: "2 companies" },
+      { label: "Template", value: "partnership-followup-v2" },
+    ],
+  },
+  {
+    agentId: "infra_ai",
+    kind: "deploy",
+    title: "Staging 環境への Deploy",
+    summary: "Orchestrator API の設計変更を staging へ反映します。",
+    impact: "承認すると staging が更新されます。本番には影響しません。",
+    risk: "low",
+    priority: "medium",
+    payload: [
+      { label: "Environment", value: "staging" },
+      { label: "Build", value: "friday-os@0.6.3" },
+    ],
+  },
+  {
+    agentId: "cfo",
+    kind: "budget",
+    title: "分析ツールの年間契約",
+    summary: "重複するSaaS 2件を統合し、年間契約へ切り替える提案です。",
+    impact: "承認すると年額 ¥180,000 の支出が確定します。",
+    risk: "medium",
+    priority: "high",
+    payload: [
+      { label: "Amount", value: "¥180,000 / year" },
+      { label: "Saving", value: "¥31,000 / month" },
+    ],
+  },
+  {
+    agentId: "risk_ai",
+    kind: "external_service",
+    title: "GitHub 連携の有効化",
+    summary: "Engineering の作業状況を自動取得するための読み取り専用連携です。",
+    impact: "承認するとリポジトリのメタデータが外部サービスへ送信されます。",
+    risk: "low",
+    priority: "low",
+    payload: [
+      { label: "Scope", value: "read-only / metadata" },
+      { label: "Terms", value: "確認済み" },
+    ],
+  },
+  {
+    agentId: "partnership_ai",
+    kind: "contract",
+    title: "提携基本合意書のドラフト送付",
+    summary: "高適合と評価した1社へ、基本合意書のドラフトを提示します。",
+    impact: "承認すると法的な交渉フェーズに入ります。",
+    risk: "high",
+    priority: "urgent",
+    payload: [
+      { label: "Counterparty", value: "高適合候補 1社" },
+      { label: "Reviewed by", value: "Risk & Compliance AI" },
+    ],
+  },
+];
+
+/**
+ * Picks a request an agent could plausibly raise right now. Returns null when
+ * the CEO already has enough on their plate, so the queue never floods.
+ */
+export function maybeRequestApproval(
+  agents: Agent[],
+  openApprovalCount: number,
+  blockedAgentIds: Set<string>,
+): PendingRequestSeed | null {
+  if (openApprovalCount >= 8) return null;
+  if (Math.random() > 0.07) return null;
+
+  const available = REQUEST_LIBRARY.filter(
+    (r) => !blockedAgentIds.has(r.agentId) && agents.some((a) => a.id === r.agentId),
+  );
+  if (available.length === 0) return null;
+
+  return pick(available);
+}

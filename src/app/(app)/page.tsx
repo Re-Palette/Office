@@ -14,6 +14,8 @@ import { ScheduleStrip } from "@/components/home/schedule-strip";
 import { CollaborationFlows } from "@/components/company/collaboration";
 import { Recommendations } from "@/components/company/recommendations";
 import { CeoInbox } from "@/components/company/ceo-inbox";
+import { CeoActionRequired } from "@/components/company/ceo-action";
+import { ReportsPanel } from "@/components/home/reports-panel";
 import { ProjectList } from "@/components/company/project-list";
 import { ActivityFeed } from "@/components/company/activity-feed";
 import { LiveDot, Panel, PanelHeader } from "@/components/ui/primitives";
@@ -59,6 +61,8 @@ export default function HomePage() {
 
       <KpiStrip />
 
+      <CeoActionRequired />
+
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <div className="space-y-5">
           <LiveWorkforce />
@@ -85,6 +89,8 @@ export default function HomePage() {
         </div>
 
         <div className="space-y-5">
+          <ReportsPanel />
+
           <Panel className="overflow-hidden">
             <PanelHeader
               title="CEO Inbox"

@@ -11,14 +11,14 @@ const ITEMS = [
     icon: Sunrise,
     label: "Morning Briefing",
     at: NEXT_SCHEDULED.morningBriefing,
-    href: "/reports#morning",
+    href: "/reports/rep-briefing-0921",
     key: "morningBriefing" as const,
   },
   {
     icon: CalendarClock,
     label: "Daily Executive Report",
     at: NEXT_SCHEDULED.dailyReport,
-    href: "/reports#daily",
+    href: "/reports/rep-daily-0921",
     key: "dailyReport" as const,
   },
   {

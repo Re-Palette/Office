@@ -15,14 +15,18 @@ AI社員だけで構成された会社を、人間の社長1人が経営する�
 | --- | --- | --- |
 | 1 | 完全なUI / UX | ✅ 完了 |
 | 2 | Mock Agent System | ✅ 完了 |
+| 2.5 | Report · PDF · Approval · Notification Workflow | ✅ 完了 |
 | 3 | Database (Supabase) | 未着手 |
 | 4 | Claude API | 未着手 |
 | 5 | Real Tools | 未着手 |
 | 6 | Scheduled Reports (Cron) | 未着手 |
 | 7 | External Integrations | 未着手 |
 
-Phase 1–2 が完了しており、Claude API を接続していない状態でも
+Phase 1–2.5 が完了しており、Claude API を接続していない状態でも
 「AI社員が実際に働いているように見える」状態まで作り込んであります。
+
+さらに、AI社員の仕事が**正式なレポートになり、PDFとして出力され、CEOへ通知され、
+CEOの承認を経て次へ進む**という一連のWorkflowが実際に動作します。
 
 ---
 
@@ -59,7 +63,9 @@ npm run typecheck  # tsc --noEmit
 | `/projects/[id]` | Project Detail | 進捗・マイルストーン・担当・活動 |
 | `/tasks` | Task Engine | ステータス別ボードと依頼の入り口 |
 | `/activity` | Activity | 全AI社員の行動イベントストリーム |
-| `/reports` | Reports | Morning Briefing / Daily Executive Report |
+| `/reports` | Report Center | 全レポートの管理・生成・PDF・確認欄 |
+| `/reports/[id]` | Report Detail | 本文・PDFプレビュー・CEO承認 |
+| `/reports/[id]/pdf` | PDF | 実際のPDFを返すRoute Handler |
 | `/meetings` | AI Board Meeting | 各Directorの週次報告とCOO統合 |
 | `/knowledge` | Knowledge Center | 会社の知識とCompany Memory |
 | `/analytics` | Analytics | 生産性・収益・AI稼働の分析 |
@@ -75,20 +81,29 @@ src/
 │   ├── (app)/              認証後のシェル配下の全画面
 │   ├── login/              アクセスゲート
 │   └── layout.tsx          フォント / メタデータ
+├── assets/fonts/           PDF埋め込み用 Noto Sans JP サブセット（JIS X 0208）
 ├── components/
 │   ├── shell/              Sidebar · Topbar · RightPanel · AppShell
 │   ├── ui/                 Panel · Button · Avatar · Progress · Charts
-│   ├── home/               KPI · Live Workforce · Today's Performance
-│   ├── company/            Activity · CEO Inbox · Collaboration · Chat
+│   ├── home/               KPI · Live Workforce · Reports · Today's Performance
+│   ├── company/            Activity · CEO Inbox · CEO Action · Notification · Chat
+│   ├── reports/            Report Status · PDF Link
 │   └── command/            Plan Graph
+├── server/
+│   ├── report-store.ts     サーバー側レポートレジストリ
+│   ├── report-pdf.ts       PDFレンダラー（A4・11セクション構成）
+│   └── font-coverage.ts    埋め込みフォントの収録文字範囲
 └── lib/
-    ├── types.ts            ドメインモデル（Agent / Task / Activity / Approval …）
+    ├── types.ts            ドメインモデル（Agent / Task / Report / Approval / Notification …）
     ├── company/            Agent Registry・部署・プロジェクト・タスク・知識・レポート
     ├── engine/
     │   ├── orchestrator.ts CEOの指示 → タスク分解 → 部署への割り当て
     │   ├── chat.ts         CEO → COO → Departments → Employees のルーティング
+    │   ├── report-builder.ts 実データを集約してレポート本文を生成
+    │   ├── workflow.ts     Task → Report → Approval → Notification の連鎖
     │   └── simulator.ts    Mock Agent System（活動イベント生成と稼働バランス）
     ├── store.ts            会社の単一ステート（zustand）
+    ├── persistence.ts      CEOの判断をブラウザに保存
     ├── status.ts           ステータスの表示メタデータ
     └── time.ts             会社時計
 ```
@@ -115,6 +130,89 @@ UIに特定のAI社員をハードコードしている箇所はありません�
 
 現在の構成: C-suite 8名（COO / CTO / CMO / CFO / CSO / Research Director /
 Creative Director / Executive Assistant）+ 各部署のスペシャリスト40名 = 48名。
+
+---
+
+## Report · PDF · Approval · Notification Workflow
+
+この4つは独立した機能ではなく、1本のWorkflowとして設計しています。
+
+```
+AI社員が仕事をする
+   ↓
+成果がレポートになる            generateReport()  — Task / Activity / Project /
+   ↓                                              Department / Analytics を集約
+PDFが生成される                 /reports/{id}/pdf — 実際のPDFを返すRoute Handler
+   ↓
+PDF URLが発行される             report.pdfUrl
+   ↓
+CEO確認待ちになる               status = PENDING_REVIEW
+   ↓
+CEOへ通知が届く                 APPROVAL_REQUIRED 通知 + 🔔 バッジ + バナー
+   ↓
+CEO Inbox / Approval Queue に入る
+   ↓
+CEOが Approve / Request Revision / Reject
+   ↓
+Activity Log に記録され、止まっていた仕事が再開する
+```
+
+### レポート
+
+7種類（Daily / Weekly / Project / Department / Research / Task Completion /
+Executive、加えて Morning Briefing）を生成できます。
+本文は自由記述ではなく、ダッシュボードが表示しているのと同じ
+タスク・活動・プロジェクト・部署・分析データを集約して構成されます。
+
+状態遷移:
+
+```
+DRAFT → GENERATING → GENERATED → PENDING_REVIEW → APPROVED
+                                               ↘ REVISION_REQUIRED → 新しいバージョン
+                                               ↘ REJECTED
+```
+
+修正依頼を出すと、作成したAI社員に Revision Task が割り当てられ、
+修正内容を反映した v2 が新しいレポートとして提出されます。
+
+### PDF
+
+`/reports/{id}/pdf` が本物のPDF（`application/pdf`）を返します。
+別タブで開く / ダッシュボード内の iframe でプレビュー / `?download=1` で保存、
+のいずれにも同じURLを使います。
+
+構成は Cover → Executive Summary → Key Metrics → Department Performance →
+Project Progress → Major Achievements → Important Findings → Problems / Risks →
+CEO Decisions Required → Next Actions → Appendix の11セクション。
+
+日本語を確実に表示するため、Noto Sans JP（OFL）を JIS X 0208 へサブセットして
+リポジトリに同梱し、PDFへ埋め込んでいます。
+pdf-lib 側のサブセット機能（`subset: true`）はこのフォントでグリフを破損させるため、
+**意図的に使用していません**。詳細は `src/assets/fonts/LICENSE.md` を参照。
+フォント未収録の文字は空白ではなく `〓` として可視化されます。
+
+### 通知
+
+| Level | 用途 | バナー表示 |
+| --- | --- | --- |
+| `INFO` | 参考情報 | — |
+| `SUCCESS` | 完了報告 | — |
+| `WARNING` | 注意喚起・期限 | — |
+| `APPROVAL_REQUIRED` | CEO承認が必要 | ✅ |
+| `ERROR` | エラー対応 | ✅ |
+| `URGENT` | 緊急 | ✅ |
+
+🔔 は未読件数をバッジ表示し、クリックで Notification Center を開きます。
+通知はクリックすると対象ページへ直接遷移し、未読は既読になります。
+`URGENT` / `APPROVAL_REQUIRED` の未読が1件以上あるときだけ、
+画面上部に1行のバナーが出ます（閉じられます）。
+
+### CEO Action Required
+
+「AIが仕事をしている」ことより「AIがCEOに何を求めているか」を最重要情報として扱います。
+承認待ちは発生源（レポート / タスク / 予算 / Deploy …）を問わず1つのリストに集約され、
+URGENT → HIGH → MEDIUM → LOW の順に並びます。
+表示場所は HOME の最上部・Command Center・右パネルの3か所で、いずれも同じデータです。
 
 ### Human Approval Gate
 
@@ -158,6 +256,28 @@ report.generated / insight.found
 Claude API へ差し替える際は、イベントの供給元を `simulator.ts` から実際の
 Agent Orchestrator へ置き換えるだけで、UI側の変更は不要です。
 `orchestrator.ts` の `planCommand()` も同様に、Claudeの呼び出しへ置き換え可能な形にしてあります。
+
+---
+
+## CEOの判断の保存
+
+承認・却下・修正依頼と、実行中に生成したレポートは `localStorage` に保存され、
+リロード後も残ります（`src/lib/persistence.ts`）。
+AI社員の稼働状況・活動ログ・会社時計は毎回シードから再生成されるため、
+ダッシュボードは常にライブのまま、判断だけが積み上がります。
+Settings → Stored decisions から初期状態へ戻せます。
+
+実行中に生成したレポートは `POST /api/reports` でサーバー側レジストリにも登録され、
+PDF URL が解決できるようになります。サーバーを再起動すると実行時レポートは失われます
+（シードレポートは常に解決します）。Phase 3 で Supabase へ移行します。
+
+---
+
+## 定期実行
+
+Daily Executive Report は、設定した時刻（既定 22:00 JST）を会社時計が越えた時点で
+自動生成されます。すぐに確認したい場合は Report Center の Generate から
+同じ処理を手動で実行できます。
 
 ---
 

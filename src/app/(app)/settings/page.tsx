@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 const PHASES = [
   { id: 1, label: "UI / UX", done: true },
   { id: 2, label: "Mock Agent System", done: true },
+  { id: 2.5, label: "Reports · PDF · Approval · Notifications", done: true },
   { id: 3, label: "Database (Supabase)", done: false },
   { id: 4, label: "Claude API", done: false },
   { id: 5, label: "Real Tools", done: false },
@@ -38,6 +39,7 @@ export default function SettingsPage() {
   const schedule = useCompany((s) => s.schedule);
   const simulating = useCompany((s) => s.simulating);
   const toggleSimulation = useCompany((s) => s.toggleSimulation);
+  const resetDecisions = useCompany((s) => s.resetDecisions);
 
   const [draft, setDraft] = useState(schedule);
   const [saved, setSaved] = useState(false);
@@ -148,6 +150,22 @@ export default function SettingsPage() {
           </Panel>
 
           <Panel className="overflow-hidden">
+            <PanelHeader title="Stored decisions" hint="Local" />
+            <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+              <div className="min-w-0">
+                <div className="text-[12px] font-medium text-ink">CEOの判断を保持</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                  承認・却下・修正依頼と生成済みレポートはブラウザに保存され、リロード後も残ります。
+                  Phase 3 で Supabase へ移行します。
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={resetDecisions}>
+                Reset to seed
+              </Button>
+            </div>
+          </Panel>
+
+          <Panel className="overflow-hidden">
             <PanelHeader title="Mock Agent System" hint="Phase 2" />
             <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
               <div className="min-w-0">
@@ -178,7 +196,7 @@ export default function SettingsPage() {
                 <li key={p.id} className="flex items-center gap-3 px-5 py-3">
                   <span
                     className={cn(
-                      "num flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px]",
+                      "num flex h-5 w-7 shrink-0 items-center justify-center rounded-md text-[10px]",
                       p.done ? "bg-live/12 text-live" : "bg-white/[0.04] text-ink-ghost",
                     )}
                   >

@@ -20,10 +20,15 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
   const simulating = useCompany((s) => s.simulating);
   const toggleSimulation = useCompany((s) => s.toggleSimulation);
   const toggleRightPanel = useCompany((s) => s.toggleRightPanel);
+  const rightPanelOpen = useCompany((s) => s.rightPanelOpen);
+  const setPanelTab = useCompany((s) => s.setPanelTab);
   const runCommand = useCompany((s) => s.runCommand);
 
   const active = agents.filter((a) => isActiveStatus(a.status)).length;
   const unread = notifications.filter((n) => !n.read).length;
+  const needsAction = notifications.some(
+    (n) => !n.read && (n.level === "APPROVAL_REQUIRED" || n.level === "URGENT" || n.level === "ERROR"),
+  );
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,13 +117,23 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
         </Button>
 
         <button
-          onClick={toggleRightPanel}
-          aria-label="Toggle notifications panel"
+          onClick={() => {
+            setPanelTab("alerts");
+            if (!rightPanelOpen) toggleRightPanel();
+          }}
+          aria-label={`Notifications${unread > 0 ? ` — ${unread} unread` : ""}`}
           className="relative rounded-lg p-2 text-ink-faint transition-colors hover:bg-white/5 hover:text-ink"
         >
           <Bell className="h-4 w-4" strokeWidth={1.75} />
           {unread > 0 && (
-            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-warn" />
+            <span
+              className={cn(
+                "num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-semibold text-canvas",
+                needsAction ? "bg-warn" : "bg-accent",
+              )}
+            >
+              {unread > 9 ? "9+" : unread}
+            </span>
           )}
         </button>
 
