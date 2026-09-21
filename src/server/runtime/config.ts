@@ -26,6 +26,19 @@ export interface GoogleConfig {
   calendarId: string;
 }
 
+/**
+ * note publishes no official write API, so this is the session cookie from the
+ * CEO's own browser. `publishMode` decides what approval actually does:
+ * "publish" puts the article live, "draft_only" leaves it as a note draft for
+ * the CEO to publish by hand — the lower-exposure setting.
+ */
+export interface NoteConfig {
+  configured: boolean;
+  authToken: string;
+  session: string;
+  publishMode: "publish" | "draft_only";
+}
+
 export interface RuntimeConfig {
   mode: RuntimeMode;
   hasApiKey: boolean;
@@ -42,6 +55,7 @@ export interface RuntimeConfig {
   dataDir: string;
   webTools: boolean;
   google: GoogleConfig;
+  note: NoteConfig;
   codeExecution: boolean;
   /**
    * Development only. Runs the whole pipeline with a scripted stand-in for the
@@ -81,6 +95,16 @@ function googleConfig(): GoogleConfig {
   };
 }
 
+function noteConfig(): NoteConfig {
+  const authToken = str(process.env.NOTE_AUTH_TOKEN);
+  return {
+    configured: Boolean(authToken),
+    authToken,
+    session: str(process.env.NOTE_SESSION),
+    publishMode: str(process.env.NOTE_PUBLISH_MODE) === "draft_only" ? "draft_only" : "publish",
+  };
+}
+
 export function getConfig(): RuntimeConfig {
   const testTransport = bool(process.env.FRIDAY_TEST_TRANSPORT, false);
   const hasApiKey =
@@ -101,6 +125,7 @@ export function getConfig(): RuntimeConfig {
     taskBudgetTokens: int(process.env.FRIDAY_TASK_BUDGET, 60_000),
     dataDir: process.env.FRIDAY_DATA_DIR?.trim() || ".friday",
     google: googleConfig(),
+    note: noteConfig(),
     webTools: bool(process.env.FRIDAY_WEB_TOOLS, true),
     codeExecution: bool(process.env.FRIDAY_CODE_EXECUTION, true),
   };
@@ -118,7 +143,9 @@ export interface PublicRuntimeStatus {
   maxSteps: number;
   maxDelegations: number;
   /** Which external services are wired up. Never the credentials themselves. */
-  integrations: { google: boolean };
+  integrations: { google: boolean; note: boolean };
+  /** What approving a note article does. Shown so the CEO is never surprised. */
+  notePublishMode: NoteConfig["publishMode"];
 }
 
 export function publicStatus(): PublicRuntimeStatus {
@@ -132,6 +159,7 @@ export function publicStatus(): PublicRuntimeStatus {
     codeExecution: c.codeExecution,
     maxSteps: c.maxSteps,
     maxDelegations: c.maxDelegations,
-    integrations: { google: c.google.configured },
+    integrations: { google: c.google.configured, note: c.note.configured },
+    notePublishMode: c.note.publishMode,
   };
 }

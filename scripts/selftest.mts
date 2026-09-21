@@ -21,6 +21,9 @@ const { runAgent, resumeRun, __setClientForTesting } = await import("../src/serv
 const { __setGoogleClientForTesting, buildMime } = await import(
   "../src/server/integrations/google"
 );
+const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
+  "../src/server/integrations/note"
+);
 const { readState, mutate } = await import("../src/server/runtime/store");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
@@ -83,6 +86,37 @@ __setGoogleClientForTesting({
   },
 });
 
+/**
+ * note, stubbed. A draft is private, so it may be created before approval;
+ * publishing must not happen until the CEO has decided.
+ */
+const note = {
+  drafts: [] as { id: string; title: string; body: string }[],
+  published: [] as { id: string; title: string; tags: string[] }[],
+};
+
+__setNoteClientForTesting({
+  async verify() {
+    return { id: "1", urlname: "re_palette", nickname: "Re-Palette" };
+  },
+  async createDraft(input) {
+    const id = `d${note.drafts.length + 1}`;
+    note.drafts.push({ id, title: input.title, body: input.body });
+    return { id, key: `n${id}`, title: input.title, editUrl: `https://note.com/notes/n${id}/edit` };
+  },
+  async publish(id, input) {
+    note.published.push({ id, title: input.title, tags: input.tags ?? [] });
+    return {
+      id,
+      key: `n${id}`,
+      title: input.title,
+      editUrl: `https://note.com/notes/n${id}/edit`,
+      url: `https://note.com/re_palette/n/n${id}`,
+      publishedAt: new Date().toISOString(),
+    };
+  },
+});
+
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures += 1;
@@ -124,6 +158,42 @@ const script: Record<string, Block[][]> = {
     ],
     // After the CEO approves:
     [{ type: "text", text: "送信しました。2社へ初回接触メールを送付済みです。" }],
+  ],
+  "Content AI": [
+    [
+      { type: "tool_use", id: "c1", name: "search_knowledge", input: { query: "ブランド" } },
+    ],
+    [
+      { type: "text", text: "note記事の原稿ができました。公開の承認をお願いします。" },
+      {
+        type: "tool_use",
+        id: "c2",
+        name: "publish_note_article",
+        input: {
+          title: "AIだけの会社を、ひとりで経営するということ",
+          body: [
+            "## はじめに",
+            "",
+            "Re-Palette では、48名のAI社員が8つの部署に分かれて働いています。",
+            "人間の社員はひとり、CEOの陽大だけです。",
+            "",
+            "## なぜこの形にしたのか",
+            "",
+            "- 判断の速さを落とさずに、実行だけを増やしたかった",
+            "- **最終決定は必ず人間が行う**という原則を崩したくなかった",
+            "- 外部に出るものは、すべて目を通してから出したかった",
+            "",
+            "> 自動化したいのは実行であって、意思決定ではない。",
+            "",
+            "この3つを満たす形を探した結果が、いまの構成です。",
+            "詳しくは [Re-Palette](https://example.com) を見てください。",
+          ].join("\n"),
+          tags: ["AI", "経営", "スタートアップ"],
+          reason: "会社の考え方を対外的に共有し、採用と提携の入口にします。",
+        },
+      },
+    ],
+    [{ type: "text", text: "記事を公開しました。" }],
   ],
   "Executive Assistant": [
     [
@@ -357,6 +427,61 @@ const second = await runAgent({
 });
 await resumeRun(second.runId, "rejected", "今回は送らないでください");
 check("a rejected send never reaches Google", google.sent.length === 1, `${google.sent.length} sent`);
+
+// ── note: a draft may exist before approval, a published article may not ───
+console.log("\n=== note (stubbed) ===\n");
+
+const html = markdownToNoteHtml(
+  "## 見出し\n\n本文です。**強調**と[リンク](https://example.com)。\n\n- 一つ目\n- 二つ目\n\n> 引用",
+);
+check("Markdown becomes note's HTML subset", html.includes("<h2>見出し</h2>"), html.slice(0, 40));
+check("lists survive the conversion", html.includes("<ul><li>一つ目</li><li>二つ目</li></ul>"));
+check("links and emphasis survive", html.includes('<a href="https://example.com">リンク</a>'));
+check("quotes survive", html.includes("<blockquote>引用</blockquote>"));
+check("nothing leaks as raw Markdown", !html.includes("**") && !html.includes("## "));
+
+const writer = await runAgent({
+  agentId: "content_ai",
+  objective: "会社の考え方を note の記事にしてください。",
+  canDelegate: false,
+  canReport: false,
+});
+
+check("writer halted at the publish gate", writer.status === "waiting_for_ceo", writer.status);
+check("a private draft was saved to note", note.drafts.length === 1);
+check("nothing was published before approval", note.published.length === 0);
+
+const articleApproval = readState().approvals.find((a) => a.id === writer.approvalId);
+check(
+  "the CEO gets the draft link to preview on note",
+  articleApproval?.payload?.some((p) => p.label === "note draft" && p.value.includes("/edit")) ??
+    false,
+);
+check(
+  "the CEO sees the whole article, not a summary",
+  articleApproval?.payload?.find((p) => p.label === "Body")?.value.includes("意思決定ではない") ??
+    false,
+);
+
+const live = await resumeRun(writer.runId, "approved", "公開してください");
+check("the server published it after approval", note.published.length === 1);
+check("tags went out with it", note.published[0]?.tags.length === 3);
+check(
+  "the agent is told the public URL",
+  Boolean(live?.text) && readState().activity.some((e) => e.message.includes("note に公開")),
+);
+
+// A rejected article stays a draft — it is never published, never deleted.
+cursor["Content AI"] = 0; // replay the script for a second article
+const spiked = await runAgent({
+  agentId: "content_ai",
+  objective: "もう一本書いてください。",
+  canDelegate: false,
+  canReport: false,
+});
+await resumeRun(spiked.runId, "rejected", "今回は出しません");
+check("a rejected article is never published", note.published.length === 1);
+check("but its draft is kept on note", note.drafts.length === 2);
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

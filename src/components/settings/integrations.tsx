@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Github, Instagram, Mail, Rocket, Terminal } from "lucide-react";
+import { CalendarDays, Github, Instagram, Mail, PenLine, Rocket, Terminal } from "lucide-react";
 import { AGENTS } from "@/lib/company/agents";
 import { useCompany } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,8 @@ function countFor(tools: ToolId[]): number {
 export function Integrations() {
   const runtime = useCompany((s) => s.runtime);
   const google = runtime?.integrations?.google ?? false;
+  const note = runtime?.integrations?.note ?? false;
+  const noteDraftOnly = runtime?.notePublishMode === "draft_only";
 
   const integrations: Integration[] = [
     {
@@ -54,6 +56,17 @@ export function Integrations() {
       unlocks: ["calendar"],
       gate: "招待ありはCEO承認",
       state: google ? "connected" : "available",
+    },
+    {
+      id: "note",
+      icon: PenLine,
+      label: "note",
+      detail: noteDraftOnly
+        ? "記事を書き、noteに非公開の下書きとして保存します。公開はCEOがnote上で行います。"
+        : "記事を書き、noteに下書きを保存。CEOが承認すると公開します。",
+      unlocks: ["note"],
+      gate: noteDraftOnly ? "公開はCEOが手動" : "公開はCEO承認",
+      state: note ? "connected" : "available",
     },
     {
       id: "github",
@@ -183,6 +196,59 @@ export function Integrations() {
             接続後もAI社員は自分でメールを送れません。文面はそのままCEOの承認待ちに入り、
             承認された瞬間にサーバーが送信します。
           </p>
+        </div>
+      )}
+
+      {!note && (
+        <div className="space-y-3 border-t border-hairline px-5 py-4">
+          <div className="flex items-center gap-2">
+            <PenLine className="h-3.5 w-3.5 text-accent-soft" strokeWidth={1.75} />
+            <span className="text-[12px] font-medium text-ink">note に記事を出す</span>
+          </div>
+
+          <p className="rounded-lg border border-warn/25 bg-warn/[0.05] px-3 py-2 text-2xs leading-relaxed text-warn/90">
+            note には記事投稿の公式APIがありません。ここで使うのは note
+            のWebクライアントが叩いている非公開のエンドポイントで、
+            予告なく変わる可能性があります。壊れたときは Settings がこの行を
+            エラーで表示し、記事は下書きとして note に残ります。
+          </p>
+
+          <ol className="space-y-2.5">
+            <Step n={1}>
+              ブラウザで{" "}
+              <a
+                href="https://note.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent-soft hover:underline"
+              >
+                note.com
+              </a>{" "}
+              にログインし、開発者ツール → Application → Cookies →
+              <code className="ml-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs text-ink-muted">
+                note_gql_auth_token
+              </code>{" "}
+              の値をコピーします。
+            </Step>
+            <Step n={2}>
+              <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-2xs text-ink-muted">
+                .env.local
+              </code>{" "}
+              に貼り付けます。
+              <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
+{`NOTE_AUTH_TOKEN=...
+
+# 承認しても自動公開せず、note上でCEOが公開する場合:
+# NOTE_PUBLISH_MODE=draft_only`}
+              </pre>
+            </Step>
+            <Step n={3}>
+              <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-2xs text-ink-muted">
+                npm run dev
+              </code>{" "}
+              を再起動すると、Content AI・Social Media AI・CMO が note を使い始めます。
+            </Step>
+          </ol>
         </div>
       )}
     </Panel>

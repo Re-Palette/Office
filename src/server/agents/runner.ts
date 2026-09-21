@@ -7,6 +7,7 @@ import type { AgentStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
 import { mutate, type AgentRun } from "@/server/runtime/store";
 import { googleReady } from "@/server/integrations/google";
+import { noteReady } from "@/server/integrations/note";
 import {
   companyToolsFor,
   executeCompanyTool,
@@ -99,6 +100,7 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
   const google = googleReady();
   const hasEmail = google && agent.tools.includes("email");
   const hasCalendar = google && agent.tools.includes("calendar");
+  const hasNote = noteReady() && agent.tools.includes("note");
 
   return [
     agent.systemPrompt,
@@ -118,6 +120,9 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
     hasCalendar
       ? "- 日程に触れる前に list_calendar_events で実際の空きを確認する。埋まっている時間を提案しない。"
       : "",
+    hasNote
+      ? "- note に出す記事は publish_note_article に完成原稿を渡す。書き出す前に search_knowledge でブランドの文体と過去記事を確認する。"
+      : "",
     "- 事実・解釈・推奨を分けて書く。結論を先に述べる。",
     canDelegate
       ? "- 自分の担当外の作業は delegate で適切なAI社員へ委譲する。指示は単独で理解できる完結した内容にする。"
@@ -132,6 +137,9 @@ function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean):
       : "",
     hasCalendar
       ? "- 参加者を招待する予定は create_calendar_event がそのままCEO承認に回る。自分だけの予定はそのまま作成される。"
+      : "",
+    hasNote
+      ? "- publish_note_article は公開しない。note に非公開の下書きを保存し、本文がそのままCEO承認に回る。公開するのは承認後のシステムであり、自分では公開できない。"
       : "",
     "- 承認が下りるまで、その作業は完了していない。回避策を探さない。",
     "- 最終的な意思決定者は常にCEO（陽大）である。",

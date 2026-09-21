@@ -17,6 +17,13 @@ import {
   googleReady,
   type SendEmailInput,
 } from "@/server/integrations/google";
+import {
+  markdownToNoteHtml,
+  NoteApiError,
+  NoteAuthError,
+  noteClient,
+  noteReady,
+} from "@/server/integrations/note";
 
 /**
  * The tools AI employees actually use.
@@ -373,6 +380,45 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+/**
+ * note has no official write API, so the reach here is deliberately narrow:
+ * one tool, which writes an article and asks. It never publishes on its own.
+ *
+ * The draft is created on note straight away, because a note draft is private
+ * — the same reasoning that lets a calendar block go through while an invite
+ * does not. That gives the CEO the article rendered on note itself, at a real
+ * URL, to read before deciding. Approval is what makes it public.
+ */
+const NOTE_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "publish_note_article",
+    description:
+      "Write an article to the company's note. Calling this does NOT publish: it saves a private draft on note and puts the full text in front of the CEO, pausing your run. The CEO approves, and only then does it go public. Write the finished article — Markdown headings, paragraphs, lists and links — not an outline. Check the brand voice with search_knowledge first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "記事タイトル。note で一覧に出る一行。" },
+        body: {
+          type: "string",
+          description: "本文（Markdown）。完成原稿をそのまま書く。見出しは ## から。",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "ハッシュタグ（#は不要）。3〜5個。",
+        },
+        reason: {
+          type: "string",
+          description: "CEOがこの公開を判断するための背景（日本語・1〜2文）",
+        },
+      },
+      required: ["title", "body", "tags", "reason"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+];
+
 export function companyToolsFor(options: {
   agentId: string;
   canDelegate: boolean;
@@ -389,6 +435,7 @@ export function companyToolsFor(options: {
     if (equipped.includes("email")) tools.push(...EMAIL_TOOLS);
     if (equipped.includes("calendar")) tools.push(...CALENDAR_TOOLS);
   }
+  if (noteReady() && equipped.includes("note")) tools.push(...NOTE_TOOLS);
 
   return tools;
 }
@@ -397,6 +444,7 @@ export const COMPANY_TOOL_NAMES = new Set([
   ...COMPANY_TOOLS.map((t) => t.name),
   ...EMAIL_TOOLS.map((t) => t.name),
   ...CALENDAR_TOOLS.map((t) => t.name),
+  ...NOTE_TOOLS.map((t) => t.name),
   DELEGATE_TOOL.name,
   APPROVAL_TOOL.name,
   REPORT_TOOL.name,
@@ -417,7 +465,7 @@ export interface ToolOutcome {
  * afterwards can alter what actually gets performed.
  */
 export interface PendingAction {
-  tool: "send_email" | "create_calendar_event";
+  tool: "send_email" | "create_calendar_event" | "publish_note_article";
   input: Record<string, unknown>;
   approvalId: string;
 }
@@ -495,6 +543,14 @@ function raiseApproval(ctx: RunContext, request: ApprovalRequest, now: number): 
 
   ctx.pendingApprovalId = approvalId;
   return approvalId;
+}
+
+function noteFailure(error: unknown): ToolOutcome {
+  if (error instanceof NoteAuthError) return { content: error.message, isError: true };
+  if (error instanceof NoteApiError) {
+    return { content: `note API エラー (${error.status}): ${error.message}`, isError: true };
+  }
+  return { content: `noteへの接続に失敗しました: ${(error as Error).message}`, isError: true };
 }
 
 function googleFailure(error: unknown): ToolOutcome {
@@ -768,6 +824,85 @@ export async function executeCompanyTool(
         };
       }
 
+      case "publish_note_article": {
+        const title = String(input.title ?? "").trim();
+        const body = String(input.body ?? "").trim();
+        if (!title || !body) {
+          return { content: "title と body は必須です。完成原稿を書いてください。", isError: true };
+        }
+        // Short enough to be an outline rather than an article.
+        if (body.length < 200) {
+          return {
+            content: `本文が${body.length}文字しかありません。note に出す完成原稿を書いてください。`,
+            isError: true,
+          };
+        }
+
+        const tags = asList(input.tags).map((t) => t.replace(/^#/, ""));
+        const html = markdownToNoteHtml(body);
+        const draftMode = getConfig().note.publishMode === "draft_only";
+
+        let draft;
+        try {
+          // Private on note until the CEO says otherwise.
+          draft = await noteClient().createDraft({ title, body: html, tags });
+        } catch (error) {
+          return noteFailure(error);
+        }
+
+        pushActivity({
+          kind: "agent.tool_called",
+          agentId: ctx.agentId,
+          at: now,
+          message: "note に下書きを保存",
+          detail: title,
+        });
+
+        const approvalId = raiseApproval(
+          ctx,
+          {
+            kind: "social_post",
+            title: `note記事の公開: ${title}`,
+            summary: String(input.reason ?? "") || `note に「${title}」を公開します。`,
+            impact: draftMode
+              ? `承認すると公開可能と記録されますが、公開操作はCEOが note 上で行います（NOTE_PUBLISH_MODE=draft_only）。下書き: ${draft.editUrl}`
+              : `承認するとこの記事が note 上で公開され、誰でも読める状態になります。下書きでの確認: ${draft.editUrl}`,
+            risk: "medium",
+            priority: "high",
+            payload: [
+              { label: "Title", value: title },
+              ...(tags.length ? [{ label: "Tags", value: tags.map((t) => `#${t}`).join(" ") }] : []),
+              { label: "note draft", value: draft.editUrl },
+              { label: "Body", value: body },
+            ],
+          },
+          now,
+        );
+
+        if (draftMode) {
+          // Nothing is queued: the CEO publishes by hand on note.
+          return {
+            content:
+              `note に下書きを保存しました（${draft.editUrl}）。公開はCEOが note 上で行います。` +
+              "この作業はここで停止します。",
+            halt: true,
+          };
+        }
+
+        ctx.pendingAction = {
+          tool: "publish_note_article",
+          input: { id: draft.id, title, body: html, tags, editUrl: draft.editUrl },
+          approvalId,
+        };
+
+        return {
+          content:
+            `まだ公開していません。note に下書きを保存し（${draft.editUrl}）、本文をCEOの承認待ちに入れて停止しました。` +
+            "承認されればサーバーが公開します。別の手段で公開してはいけません。",
+          halt: true,
+        };
+      }
+
       case "list_calendar_events": {
         const from = String(input.from ?? "").trim();
         const to = String(input.to ?? "").trim();
@@ -921,6 +1056,24 @@ export async function performApprovedAction(
       };
     }
 
+    if (action.tool === "publish_note_article") {
+      const input = action.input as { id: string; title: string; body: string; tags: string[] };
+      const published = await noteClient().publish(input.id, {
+        title: input.title,
+        body: input.body,
+        tags: input.tags,
+      });
+      pushActivity({
+        kind: "agent.tool_called",
+        agentId,
+        at: now,
+        message: "CEO承認を受けて note に公開",
+        detail: `${published.title} — ${published.url}`,
+        severity: "important",
+      });
+      return { ok: true, message: `note に公開しました: ${published.title}\n${published.url}` };
+    }
+
     const event = await googleClient().createEvent(
       action.input as unknown as Parameters<ReturnType<typeof googleClient>["createEvent"]>[0],
     );
@@ -937,7 +1090,14 @@ export async function performApprovedAction(
       message: `予定を作成し、招待を送信しました: ${event.summary}（${event.start} 〜 ${event.end}）`,
     };
   } catch (error) {
-    const message = googleFailure(error).content;
+    const message =
+      action.tool === "publish_note_article"
+        ? // The draft survives a failed publish, so say where it is rather than
+          // leaving the CEO to wonder whether the article was lost.
+          `${noteFailure(error).content}（下書きは note に残っています: ${
+            (action.input as { editUrl?: string }).editUrl ?? "note の下書き一覧"
+          }）`
+        : googleFailure(error).content;
     pushActivity({
       kind: "agent.completed",
       agentId,

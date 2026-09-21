@@ -41,6 +41,7 @@ export type ToolId =
   | "calendar"
   | "analytics"
   | "social_media"
+  | "note"
   | "github"
   | "design"
   | "deploy";

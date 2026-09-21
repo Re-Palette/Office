@@ -116,7 +116,7 @@ const EXECUTIVES: AgentSeed[] = [
 チャネル別の仮説・施策・計測指標を必ずセットで提示し、成果が出ない施策は早期に停止を提案してください。
 SNSへの投稿・広告配信の実行にはCEO承認が必要です。`,
     skills: ["Brand Strategy", "Content Strategy", "Growth", "Channel Mix"],
-    tools: ["social_media", "analytics", "web_research", "browser"],
+    tools: ["social_media", "note", "analytics", "web_research", "browser"],
     permissions: ["read_company_data", "assign_tasks", "publish_social"],
     reportsTo: "coo",
     collaborators: ["coo", "creative_director", "research_director", "cso"],
@@ -269,8 +269,8 @@ const SPECIALISTS: SpecialistRow[] = [
   ["data_eng", "CONDUIT", "Data Engineering AI", "engineering", "社内データの収集・整形・供給を担当する。", "ETL|Schema Design|Pipelines", ["database", "code_execution"], "idle", "待機中", 176, 90, 28],
 
   // ── Marketing ──────────────────────────────────────────────────────────────
-  ["content_ai", "QUILL", "Content AI", "marketing", "記事・投稿・台本を制作する。", "Copywriting|SEO|Editorial", ["web_research", "social_media"], "writing", "Re-Palette note記事の初稿を執筆", 512, 93, 0],
-  ["social_ai", "SIGNAL", "Social Media AI", "marketing", "SNS運用と反応分析を担当する。", "Instagram|X|Community", ["social_media", "analytics"], "needs_approval", "Instagram投稿3案のCEO承認待ち", 448, 92, 4],
+  ["content_ai", "QUILL", "Content AI", "marketing", "記事・投稿・台本を制作する。", "Copywriting|SEO|Editorial", ["web_research", "social_media", "note"], "writing", "Re-Palette note記事の初稿を執筆", 512, 93, 0],
+  ["social_ai", "SIGNAL", "Social Media AI", "marketing", "SNS運用と反応分析を担当する。", "Instagram|X|Community", ["social_media", "note", "analytics"], "needs_approval", "Instagram投稿3案のCEO承認待ち", 448, 92, 4],
   ["seo_ai", "CRAWLER", "SEO AI", "marketing", "検索流入の設計と改善を行う。", "Keyword Research|Technical SEO", ["web_research", "analytics", "browser"], "completed", "競合キーワードギャップ分析を完了", 259, 89, 16],
   ["ads_ai", "TRACER", "Performance AI", "marketing", "広告の配分と費用対効果を最適化する。", "Paid Media|Attribution|LTV", ["analytics", "social_media"], "idle", "待機中", 194, 90, 37],
   ["crm_ai", "LOOP", "Lifecycle AI", "marketing", "既存顧客との関係を継続的に育てる。", "Email Lifecycle|Retention", ["email", "analytics"], "idle", "待機中", 147, 87, 33],
@@ -333,7 +333,7 @@ function expandSpecialist(row: SpecialistRow): AgentSeed {
   const head = DEPARTMENT_HEAD[department];
   const gated: PermissionId[] = [];
   if (tools.includes("email")) gated.push("send_external_email");
-  if (tools.includes("social_media")) gated.push("publish_social");
+  if (tools.includes("social_media") || tools.includes("note")) gated.push("publish_social");
   if (tools.includes("deploy")) gated.push("deploy_production");
   if (tools.includes("database")) gated.push("write_company_data");
 
