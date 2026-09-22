@@ -20,7 +20,9 @@ process.env.ANTHROPIC_API_KEY = "sk-ant-selftest";
 process.env.NOTE_DAILY_DRAFT_AT = "00:00";
 process.env.FRIDAY_DATA_DIR = mkdtempSync(path.join(tmpdir(), "friday-selftest-"));
 
-const { runAgent, resumeRun, __setClientForTesting } = await import("../src/server/agents/runner");
+const { runAgent, resumeRun, __setClientForTesting, describeBadRequest } = await import(
+  "../src/server/agents/runner"
+);
 const { __setGoogleClientForTesting, buildMime } = await import(
   "../src/server/integrations/google"
 );
@@ -979,6 +981,38 @@ check("a pasted .env line is stripped", storageStatus().error === null, storageS
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 invalidate();
+
+// ── What a failed API call tells the CEO ───────────────────────────────────
+//
+// A 400 covers both a request this code built wrong and an account that
+// cannot be billed. They need opposite responses, so they must not read the
+// same. Both messages were hit for real during setup.
+console.log("\n=== API errors ===\n");
+
+// Exactly what the SDK puts in error.message: the status and the JSON body.
+const billing = describeBadRequest(
+  '400 {"type":"error","error":{"type":"invalid_request_error","message":' +
+    '"Your credit balance is too low to access the Anthropic API. ' +
+    'Please go to Plans & Billing to upgrade or purchase credits."}}',
+);
+check("a billing failure says so, not 400", billing.includes("クレジット残高"), billing.slice(0, 32));
+check("and points at where to fix it", billing.includes("Plans & Billing"));
+check("without dumping JSON at the CEO", !billing.includes("invalid_request_error"));
+
+const schema = describeBadRequest(
+  '400 {"type":"error","error":{"type":"invalid_request_error","message":"Schema is too complex."}}',
+);
+check(
+  "a malformed request is owned as ours",
+  schema.includes("実装側の問題") && schema.includes("Schema is too complex"),
+  schema.slice(0, 40),
+);
+
+const model = describeBadRequest("400 model: claude-nonexistent does not exist");
+check("an unavailable model names the way out", model.includes("FRIDAY_MODEL"), model.slice(0, 40));
+
+const other = describeBadRequest("400 something unforeseen");
+check("anything else keeps its detail", other.includes("something unforeseen"), other.slice(0, 40));
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

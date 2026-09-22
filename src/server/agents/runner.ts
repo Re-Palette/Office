@@ -535,7 +535,52 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
   }
 }
 
-function describeError(error: unknown): string {
+/**
+ * Reads a 400 and says whose problem it is.
+ *
+ * The API returns 400 both for a request this code built wrong and for an
+ * account that cannot be billed. Those need opposite responses — one is mine
+ * to fix, the other is a link to follow — so they must not read the same.
+ * The raw detail is kept in every branch: it is what identified the schema
+ * limit, and the next unfamiliar failure will need it too.
+ *
+ * Split out from the exception handling so it can be tested on its own; the
+ * SDK's error classes are awkward to construct and are not the interesting
+ * part.
+ */
+export function describeBadRequest(detail: string): string {
+  if (/credit balance is too low|purchase credits|Plans & Billing/i.test(detail)) {
+    return (
+      "Anthropic APIのクレジット残高が不足しています。" +
+      "console.anthropic.com の Plans & Billing でクレジットを購入してください" +
+      "（Claudeの月額プランとは別に、API利用分のクレジットが必要です）。"
+    );
+  }
+  if (/Schema is too complex|input_schema|tools\./i.test(detail)) {
+    return `ツール定義がAPIに拒否されました（実装側の問題です）: ${detail}`;
+  }
+  if (/model:|not_found_error|does not exist/i.test(detail)) {
+    return (
+      `モデルを利用できません: ${detail}。` +
+      "FRIDAY_MODEL に利用可能なモデルIDを設定すると切り替えられます。"
+    );
+  }
+  if (/max_tokens/i.test(detail)) {
+    return `出力トークン上限の指定が不正です（実装側の問題です）: ${detail}`;
+  }
+  return `リクエストが拒否されました: ${detail}`;
+}
+
+/**
+ * Turns an SDK exception into something the CEO can act on.
+ *
+ * A 400 is the interesting one: the API uses it both for a request this code
+ * built wrong and for an account that cannot be billed, and those need
+ * opposite responses — one is mine to fix, the other is a link to follow.
+ * Raw JSON told us the schema was too complex, so the detail is still kept
+ * when it is a real request error; it just no longer leads.
+ */
+export function describeError(error: unknown): string {
   if (error instanceof Anthropic.AuthenticationError) {
     return "APIキーが無効です。ANTHROPIC_API_KEY を確認してください。";
   }
@@ -543,7 +588,7 @@ function describeError(error: unknown): string {
     return "レート制限に達しました。しばらく待って再実行してください。";
   }
   if (error instanceof Anthropic.BadRequestError) {
-    return `リクエストが拒否されました: ${error.message}`;
+    return describeBadRequest(error.message);
   }
   if (error instanceof Anthropic.APIConnectionError) {
     return "Claude API へ接続できませんでした。ネットワークを確認してください。";
