@@ -153,7 +153,13 @@ function noteConfig(): NoteConfig {
 
 function supabaseConfig(): SupabaseConfig {
   const url = str(process.env.SUPABASE_URL).replace(/\/+$/, "");
-  const serviceKey = str(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  // Supabase renamed these: a modern "secret key" (sb_secret_…) is what the
+  // old service_role key became. Both are accepted so the variable name never
+  // has to match whichever generation of the dashboard someone copied from.
+  const serviceKey =
+    str(process.env.SUPABASE_SERVICE_ROLE_KEY) || str(process.env.SUPABASE_SECRET_KEY);
+
   return { configured: Boolean(url && serviceKey), url, serviceKey };
 }
 
