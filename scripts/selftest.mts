@@ -35,6 +35,7 @@ const { readState, mutate, loadState, flushState, invalidate, storageStatus } = 
   "../src/server/runtime/store"
 );
 const { mergeState } = await import("../src/server/runtime/supabase-store");
+const { diagnoseSupabase } = await import("../src/server/runtime/diagnose");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
@@ -855,6 +856,100 @@ check(
   widest.count <= 16,
   `${widest.agent}: ${widest.count} tools`,
 );
+
+// ── The setup check ────────────────────────────────────────────────────────
+//
+// Its whole job is telling apart failures that look the same from outside: a
+// key arriving as `anon` reads an empty table without error, exactly like a
+// table that is simply empty. Each case gets a server that behaves that way.
+console.log("\n=== Setup check ===\n");
+
+async function diagnoseAgainst(
+  handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
+  key = "sb_secret_test",
+) {
+  const server = createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const p = (server.address() as { port: number }).port;
+  process.env.SUPABASE_URL = `http://127.0.0.1:${p}`;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = key;
+  try {
+    return await diagnoseSupabase();
+  } finally {
+    server.close();
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  }
+}
+
+const send = (res: import("node:http").ServerResponse, status: number, body: unknown) => {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(typeof body === "string" ? body : JSON.stringify(body));
+};
+
+// A healthy service_role key.
+const healthy = await diagnoseAgainst((req, res) => {
+  if (req.url?.includes("friday_whoami")) {
+    return send(res, 200, { current_user: "service_role", bypasses_rls: true });
+  }
+  if (req.method === "GET") return send(res, 200, []);
+  if (req.method === "POST") return send(res, 201, [{ version: 0 }]);
+  return send(res, 200, []);
+});
+check("a working setup reports success", healthy.verdict.includes("正常"), healthy.verdict);
+check("the key is never echoed", !JSON.stringify(healthy).includes("sb_secret_test"));
+check("only the host is reported", healthy.host?.startsWith("127.0.0.1") ?? false, healthy.host ?? "");
+
+// The case nothing else distinguishes: reads fine, but as the wrong role.
+const wrongRole = await diagnoseAgainst((req, res) => {
+  if (req.url?.includes("friday_whoami")) {
+    return send(res, 200, { current_user: "anon", bypasses_rls: false });
+  }
+  return send(res, 200, []);
+});
+check(
+  "a key arriving as anon is named, not read as an empty table",
+  wrongRole.verdict.includes("anon") && wrongRole.verdict.includes("service_role"),
+  wrongRole.verdict.slice(0, 60),
+);
+
+// Same thing where the probe function is absent: the write settles it.
+const rlsRefusal = await diagnoseAgainst((req, res) => {
+  if (req.url?.includes("friday_whoami")) return send(res, 404, {});
+  if (req.method === "GET") return send(res, 200, []);
+  return send(res, 403, {
+    code: "42501",
+    message: 'new row violates row-level security policy for table "work_state"',
+  });
+});
+check(
+  "an RLS refusal on write is explained",
+  rlsRefusal.verdict.includes("行レベルセキュリティ"),
+  rlsRefusal.verdict.slice(0, 60),
+);
+
+// A rejected key.
+const badKey = await diagnoseAgainst((_req, res) => send(res, 401, { message: "Invalid API key" }));
+check("a rejected key is reported as such", badKey.verdict.includes("401"), badKey.verdict.slice(0, 50));
+
+// A missing table — the migration went to a different project.
+const noTable = await diagnoseAgainst((_req, res) =>
+  send(res, 404, { message: 'relation "public.work_state" does not exist' }),
+);
+check("a missing table is reported as such", noTable.verdict.includes("テーブル"), noTable.verdict.slice(0, 50));
+
+// A publishable key never gets as far as a request.
+const publishable = await diagnoseAgainst(
+  (_req, res) => send(res, 200, []),
+  "sb_publishable_wrong",
+);
+check(
+  "a publishable key is caught before any request",
+  publishable.probes.length === 0 && publishable.verdict.includes("Secret keys"),
+  publishable.verdict.slice(0, 50),
+);
+
+invalidate();
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);
