@@ -949,6 +949,35 @@ check(
   publishable.verdict.slice(0, 50),
 );
 
+// A value that is not an API key at all — the case actually hit in setup.
+// It must be named by shape rather than sent and rejected with a bare 401.
+const notAKey = await diagnoseAgainst(
+  (_req, res) => send(res, 401, { message: "Invalid API key" }),
+  "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWo=",
+);
+check(
+  "a value that is not a key is named, not just rejected",
+  notAKey.probes.length === 0 && notAKey.verdict.includes("形式ではありません"),
+  notAKey.verdict.slice(0, 50),
+);
+check("its shape is described without revealing it", notAKey.keyShape.length === 44);
+check(
+  "the value itself is never echoed",
+  !JSON.stringify(notAKey).includes("Zm9vYmFy"),
+);
+
+// Quotes and a NAME= prefix survive a copy-paste; both are stripped.
+process.env.SUPABASE_URL = "https://abc.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY = '"sb_secret_quoted"';
+invalidate();
+check("surrounding quotes are stripped", storageStatus().error === null, storageStatus().error ?? "");
+
+process.env.SUPABASE_SERVICE_ROLE_KEY = "SUPABASE_SERVICE_ROLE_KEY=sb_secret_pasted_whole";
+invalidate();
+check("a pasted .env line is stripped", storageStatus().error === null, storageStatus().error ?? "");
+
+delete process.env.SUPABASE_URL;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 invalidate();
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);

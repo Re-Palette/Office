@@ -105,6 +105,25 @@ function str(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 
+/**
+ * Cleans a credential pasted from somewhere else.
+ *
+ * The two things that reliably survive a copy-paste into a settings form are
+ * the quotes from a .env file and the `NAME=` in front of the value. Both are
+ * unambiguous — no real key contains either — so removing them is a fix, not a
+ * guess, and it saves a round trip over a 401 that says nothing about why.
+ */
+export function cleanSecret(value: string | undefined): string {
+  let v = str(value);
+  // NAME=value, as pasted from a .env line.
+  v = v.replace(/^[A-Z][A-Z0-9_]*\s*=\s*/, "");
+  // Surrounding quotes, matching only.
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  return v.trim();
+}
+
 function googleConfig(): GoogleConfig {
   const clientId = str(process.env.GOOGLE_CLIENT_ID);
   const clientSecret = str(process.env.GOOGLE_CLIENT_SECRET);
@@ -211,13 +230,14 @@ function checkSupabase(url: string, key: string): string | null {
 }
 
 function supabaseConfig(): SupabaseConfig {
-  const url = str(process.env.SUPABASE_URL).replace(/\/+$/, "");
+  const url = cleanSecret(process.env.SUPABASE_URL).replace(/\/+$/, "");
 
   // Supabase renamed these: a modern "secret key" (sb_secret_…) is what the
   // old service_role key became. Both are accepted so the variable name never
   // has to match whichever generation of the dashboard someone copied from.
   const serviceKey =
-    str(process.env.SUPABASE_SERVICE_ROLE_KEY) || str(process.env.SUPABASE_SECRET_KEY);
+    cleanSecret(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+    cleanSecret(process.env.SUPABASE_SECRET_KEY);
 
   return {
     configured: Boolean(url && serviceKey),

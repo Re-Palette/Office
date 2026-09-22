@@ -25,9 +25,45 @@ export interface Diagnosis {
   /** Host only. The key never appears anywhere in this object. */
   host: string | null;
   keyKind: "secret" | "legacy-service-role" | "publishable-or-anon" | "unknown" | "missing";
+  /**
+   * The shape of the value, for when it is not a key at all. Length and which
+   * characters classes are present say enough to identify what was pasted —
+   * a JWT secret, a database password, a project ref — without printing it.
+   */
+  keyShape: { length: number; looksLike: string };
   settingsProblem: string | null;
   probes: Probe[];
   verdict: string;
+}
+
+/**
+ * Describes an unrecognised value well enough to place it.
+ *
+ * Supabase's settings pages sit next to each other and hold several long
+ * opaque strings — the JWT secret, the database password, the project ref —
+ * any of which can end up in this field. None is an API key, and all of them
+ * fail with the same 401.
+ */
+function describeShape(key: string): { length: number; looksLike: string } {
+  const length = key.length;
+
+  if (!key) return { length, looksLike: "空です" };
+  if (/\s/.test(key)) return { length, looksLike: "空白や改行が混ざっています" };
+  if (/[•*]/.test(key)) {
+    return { length, looksLike: "伏せ字（●や*）が含まれています。表示してからコピーしてください" };
+  }
+  if (key.startsWith("sb_")) return { length, looksLike: "sb_ で始まる Supabase キー" };
+  if (key.startsWith("eyJ")) return { length, looksLike: "JWT 形式のキー" };
+  if (key.startsWith("postgres") || key.includes("@")) {
+    return { length, looksLike: "データベース接続文字列のように見えます" };
+  }
+  if (/^[a-z]{20}$/.test(key)) {
+    return { length, looksLike: "プロジェクトref（URLの一部）のように見えます" };
+  }
+  if (/^[A-Za-z0-9+/=]{32,}$/.test(key)) {
+    return { length, looksLike: "JWT Secret やパスワードのような、ランダムな文字列" };
+  }
+  return { length, looksLike: "API キーとして認識できない値" };
 }
 
 function classifyKey(key: string): Diagnosis["keyKind"] {
@@ -93,10 +129,25 @@ export async function diagnoseSupabase(): Promise<Diagnosis> {
     configured: supabase.configured,
     host: supabase.url ? safeHost(supabase.url) : null,
     keyKind,
+    keyShape: describeShape(supabase.serviceKey),
     settingsProblem: supabase.misconfigured,
     probes: [],
     verdict: "",
   };
+
+  // An unrecognised value never reaches a request: the 401 it would earn says
+  // nothing, and the shape already says what was pasted instead.
+  if (supabase.configured && keyKind === "unknown") {
+    return {
+      ...base,
+      verdict:
+        `SUPABASE_SERVICE_ROLE_KEY が Supabase の API キーの形式ではありません` +
+        `（${base.keyShape.length}文字・${base.keyShape.looksLike}）。` +
+        "Settings → API Keys → Secret keys の default 行、目のアイコンで表示してから" +
+        "コピーボタンで取得した sb_secret_… を設定してください。" +
+        "JWT Keys ページの値やデータベースのパスワードではありません。",
+    };
+  }
 
   if (!supabase.configured) {
     return { ...base, verdict: "SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY が設定されていません。" };
