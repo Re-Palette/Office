@@ -50,21 +50,39 @@ async function request(
   path: string,
   init: RequestInit,
 ): Promise<Response> {
-  const response = await fetch(`${creds.url}${path}`, {
-    ...init,
-    headers: { ...headers(creds), ...(init.headers ?? {}) },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${creds.url}${path}`, {
+      ...init,
+      headers: { ...headers(creds), ...(init.headers ?? {}) },
+      cache: "no-store",
+    });
+  } catch (error) {
+    // DNS failure, wrong host, no network. The message alone ("fetch failed")
+    // says nothing, so the host being dialled goes in it.
+    throw new SupabaseStoreError(
+      `${creds.url} に接続できませんでした: ${(error as Error).message}`,
+    );
+  }
 
   if (response.status === 401 || response.status === 403) {
+    const detail = await response.text().catch(() => "");
     throw new SupabaseStoreError(
-      "Supabase への認証に失敗しました。SUPABASE_SERVICE_ROLE_KEY を確認してください。",
+      `Supabase への認証に失敗しました (${response.status}): ${detail.slice(0, 200)}。` +
+        "Settings → API Keys の Secret keys（sb_secret_…）を SUPABASE_SERVICE_ROLE_KEY に設定してください。",
+    );
+  }
+  if (response.status === 404) {
+    const detail = await response.text().catch(() => "");
+    throw new SupabaseStoreError(
+      `work_state テーブルが見つかりません (404): ${detail.slice(0, 200)}。` +
+        `URL（${creds.url}）が正しいプロジェクトのものか、マイグレーションが適用済みか確認してください。`,
     );
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new SupabaseStoreError(
-      `Supabase エラー (${response.status}): ${detail.slice(0, 200) || "unknown"}`,
+      `Supabase エラー (${response.status}) at ${creds.url}: ${detail.slice(0, 200) || "unknown"}`,
     );
   }
   return response;

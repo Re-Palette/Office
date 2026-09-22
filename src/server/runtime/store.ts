@@ -189,8 +189,13 @@ function credentials(): SupabaseCredentials | null {
 
 /** What is holding the state, and whether it is actually reachable. */
 export function storageStatus(): StorageStatus {
-  if (!credentials()) return { backend: "file", healthy: true, error: null };
-  return { backend: "supabase", healthy: storageError === null, error: storageError };
+  const { supabase } = getConfig();
+  if (!supabase.configured) return { backend: "file", healthy: true, error: null };
+
+  // A structural mistake is reported without waiting for a request to fail on
+  // it — the settings themselves already say what is wrong.
+  const error = supabase.misconfigured ?? storageError;
+  return { backend: "supabase", healthy: error === null, error };
 }
 
 function filePath(): string {
@@ -422,4 +427,7 @@ export function invalidate(): void {
   cache = null;
   baseVersion = 0;
   dirty = false;
+  // The last failure belonged to the copy being dropped. Carrying it forward
+  // would report a settings change as still broken before it was tried.
+  storageError = null;
 }

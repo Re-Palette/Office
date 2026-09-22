@@ -59,6 +59,8 @@ export interface SupabaseConfig {
   configured: boolean;
   url: string;
   serviceKey: string;
+  /** Set when the values are present but structurally wrong. */
+  misconfigured: string | null;
 }
 
 export interface RuntimeConfig {
@@ -151,6 +153,63 @@ function noteConfig(): NoteConfig {
   };
 }
 
+/**
+ * Checks the two values look like what they are supposed to be.
+ *
+ * Both are copied by hand from a dashboard that does not show them on the same
+ * page, so the usual mistakes are structural: the dashboard URL instead of the
+ * project's API URL, or the publishable key instead of the secret one. Caught
+ * here, they are one sentence; caught at request time they are an opaque 401
+ * or a stream of 404s.
+ */
+function isLocal(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    /^127\./.test(hostname) ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+  );
+}
+
+function checkSupabase(url: string, key: string): string | null {
+  if (!url || !key) return null;
+
+  let origin: URL;
+  try {
+    origin = new URL(url);
+  } catch {
+    return `SUPABASE_URL が URL として読めません（${url}）。https://<project-ref>.supabase.co の形式です。`;
+  }
+
+  // http is fine on a machine you control — a self-hosted Supabase on a
+  // private network, or the loopback stub the self-test runs against. Over the
+  // public internet it would put the secret key on the wire in the clear.
+  if (origin.protocol !== "https:" && !isLocal(origin.hostname)) {
+    return `SUPABASE_URL は https:// である必要があります（${origin.hostname}）。秘密鍵が平文で流れます。`;
+  }
+  if (origin.hostname === "supabase.com" || origin.hostname.endsWith(".supabase.com")) {
+    return (
+      "SUPABASE_URL にダッシュボードのURLが入っています。" +
+      "Settings → Data API の Project URL（https://<project-ref>.supabase.co）を使ってください。"
+    );
+  }
+  if (origin.pathname !== "/") {
+    return `SUPABASE_URL にパスが含まれています（${origin.pathname}）。ホストまでで止めてください。`;
+  }
+  if (key.startsWith("sb_publishable_") || /"role":"anon"/.test(key)) {
+    return (
+      "publishable / anon キーが設定されています。これは行レベルセキュリティを迂回できないため読み書きできません。" +
+      "Settings → API Keys の Secret keys（sb_secret_…）を使ってください。"
+    );
+  }
+
+  return null;
+}
+
 function supabaseConfig(): SupabaseConfig {
   const url = str(process.env.SUPABASE_URL).replace(/\/+$/, "");
 
@@ -160,7 +219,12 @@ function supabaseConfig(): SupabaseConfig {
   const serviceKey =
     str(process.env.SUPABASE_SERVICE_ROLE_KEY) || str(process.env.SUPABASE_SECRET_KEY);
 
-  return { configured: Boolean(url && serviceKey), url, serviceKey };
+  return {
+    configured: Boolean(url && serviceKey),
+    url,
+    serviceKey,
+    misconfigured: checkSupabase(url, serviceKey),
+  };
 }
 
 export function getConfig(): RuntimeConfig {

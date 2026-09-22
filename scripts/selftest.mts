@@ -768,6 +768,32 @@ delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 invalidate();
 check("with no database configured it reports the file backend", storageStatus().backend === "file");
 
+// The two mistakes this setup actually invites, caught from the settings
+// themselves rather than from a failed request.
+const misconfigurations: [string, string, string][] = [
+  ["dashboard URL", "https://supabase.com/dashboard/project/abc", "sb_secret_x", ],
+  ["URL with a path", "https://abc.supabase.co/rest/v1", "sb_secret_x"],
+  ["publishable key", "https://abc.supabase.co", "sb_publishable_x"],
+  ["http to a public host", "http://abc.supabase.co", "sb_secret_x"],
+];
+
+for (const [label, url, key] of misconfigurations) {
+  process.env.SUPABASE_URL = url;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = key;
+  invalidate();
+  const status = storageStatus();
+  check(`a ${label} is reported, not silently retried`, !status.healthy && Boolean(status.error), status.error?.slice(0, 44));
+}
+
+process.env.SUPABASE_URL = "https://abc.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_looks_right";
+invalidate();
+check("settings that look right are not flagged", storageStatus().error === null, storageStatus().error ?? "");
+
+delete process.env.SUPABASE_URL;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+invalidate();
+
 // ── The tool payload the API actually receives ─────────────────────────────
 //
 // `strict: true` compiles every schema into a grammar against a complexity
