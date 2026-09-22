@@ -40,6 +40,7 @@ import {
   submitDecision,
   pokeScheduler as pokeSchedulerApi,
   setNoteDraftStatus,
+  type JobOutcome,
   type AgentRunSummary,
   type NoteDraftSummary,
   type RuntimeMode,
@@ -139,7 +140,7 @@ export interface CompanyState {
   /** Marks a note draft posted or set aside, and tells the server. */
   setNoteDraft: (id: string, status: NoteDraftSummary["status"], noteUrl?: string) => void;
   /** Asks the server to run anything due. Safe to call as often as we like. */
-  pokeScheduler: (force?: boolean) => Promise<void>;
+  pokeScheduler: (force?: boolean) => Promise<JobOutcome[]>;
 
   runCommand: (input: string) => CommandPlan;
   sendChat: (input: string) => void;
@@ -791,12 +792,14 @@ export const useCompany = create<CompanyState>((set, get) => ({
   },
 
   pokeScheduler: async (force = false) => {
-    if (get().mode !== "live") return;
+    if (get().mode !== "live") return [];
     try {
-      await pokeSchedulerApi(force);
+      const results = await pokeSchedulerApi(force);
       await get().syncFromServer();
+      return results;
     } catch (error) {
       set({ liveError: (error as Error).message });
+      throw error;
     }
   },
 

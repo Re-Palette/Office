@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Archive,
   Check,
   Copy,
@@ -36,6 +37,7 @@ export default function NoteDraftsPage() {
   const [filter, setFilter] = useState<"READY" | "POSTED" | "ALL">("READY");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [writing, setWriting] = useState(false);
+  const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
 
   const visible = useMemo(
     () => drafts.filter((d) => (filter === "ALL" ? true : d.status === filter)),
@@ -50,11 +52,22 @@ export default function NoteDraftsPage() {
 
   const ready = drafts.filter((d) => d.status === "READY").length;
   const at = runtime?.noteDailyDraftAt ?? "17:00";
+  const platform = runtime?.platform ?? "server";
+  const ephemeral = runtime?.persistence === "ephemeral";
 
   async function writeNow() {
     setWriting(true);
+    setOutcome(null);
     try {
-      await pokeScheduler(true);
+      const results = await pokeScheduler(true);
+      const job = results.find((r) => r.id === "note-daily-draft");
+      setOutcome(
+        job
+          ? { ok: job.status === "ran", text: job.detail }
+          : { ok: false, text: "ジョブが応答しませんでした。" },
+      );
+    } catch (error) {
+      setOutcome({ ok: false, text: (error as Error).message });
     } finally {
       setWriting(false);
     }
@@ -80,17 +93,124 @@ export default function NoteDraftsPage() {
       />
 
       {mode !== "live" ? (
-        <Panel>
-          <div className="px-5 py-10 text-center">
-            <PenLine className="mx-auto h-5 w-5 text-ink-ghost" strokeWidth={1.5} />
-            <p className="mt-3 text-xs leading-relaxed text-ink-muted">
-              デモ動作では記事は生成されません。Settings で ANTHROPIC_API_KEY を設定すると、
-              Content AI が毎日 {at} JST に note 記事を書き始めます。
+        <Panel className="overflow-hidden">
+          <PanelHeader title="記事を書かせるには" hint="デモ動作中" />
+          <div className="space-y-3 px-5 py-4">
+            <p className="text-xs leading-relaxed text-ink-muted">
+              ANTHROPIC_API_KEY が設定されていないため、Content AI は動きません。
+              記事の生成・保存・毎日の実行はすべてこのキーの有無で切り替わります。
+            </p>
+
+            {platform === "vercel" ? (
+              <ol className="space-y-2.5">
+                <SetupStep n={1}>
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent-soft hover:underline"
+                  >
+                    console.anthropic.com
+                  </a>{" "}
+                  でAPIキーを発行します。
+                </SetupStep>
+                <SetupStep n={2}>
+                  Vercel の該当プロジェクト → Settings → Environment Variables に
+                  <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs text-ink-muted">
+                    ANTHROPIC_API_KEY
+                  </code>
+                  を追加し、Production にチェックを入れます。
+                </SetupStep>
+                <SetupStep n={3}>
+                  Deployments → 最新のデプロイ → Redeploy。
+                  環境変数はビルド後に反映されないため、再デプロイが必要です。
+                </SetupStep>
+              </ol>
+            ) : (
+              <ol className="space-y-2.5">
+                <SetupStep n={1}>
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent-soft hover:underline"
+                  >
+                    console.anthropic.com
+                  </a>{" "}
+                  でAPIキーを発行します。
+                </SetupStep>
+                <SetupStep n={2}>
+                  プロジェクト直下の{" "}
+                  <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs text-ink-muted">
+                    .env.local
+                  </code>{" "}
+                  に追記します。
+                  <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
+{`ANTHROPIC_API_KEY=sk-ant-...`}
+                  </pre>
+                </SetupStep>
+                <SetupStep n={3}>
+                  <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-2xs text-ink-muted">
+                    npm run dev
+                  </code>{" "}
+                  を再起動します。
+                </SetupStep>
+              </ol>
+            )}
+
+            <p className="rounded-lg border border-hairline bg-white/[0.02] px-3 py-2 text-2xs leading-relaxed text-ink-faint">
+              キーを使わずに画面と流れだけ確認するなら、
+              <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs text-ink-muted">
+                FRIDAY_TEST_TRANSPORT=1
+              </code>
+              を付けて起動すると、サンプル記事で同じ経路を動かせます。
             </p>
           </div>
         </Panel>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+        <div className="space-y-5">
+          {outcome && (
+            <div
+              className={cn(
+                "flex items-start gap-2.5 rounded-xl border px-4 py-3",
+                outcome.ok
+                  ? "border-live/25 bg-live/[0.06]"
+                  : "border-danger/25 bg-danger/[0.06]",
+              )}
+            >
+              {outcome.ok ? (
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-live" strokeWidth={2.25} />
+              ) : (
+                <AlertTriangle
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger"
+                  strokeWidth={1.75}
+                />
+              )}
+              <p
+                className={cn(
+                  "text-2xs leading-relaxed",
+                  outcome.ok ? "text-live/90" : "text-danger/90",
+                )}
+              >
+                {outcome.text}
+              </p>
+            </div>
+          )}
+
+          {ephemeral && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-warn/25 bg-warn/[0.05] px-4 py-3">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" strokeWidth={1.75} />
+              <p className="text-2xs leading-relaxed text-warn/90">
+                <strong className="text-warn">この環境では下書きが消えます。</strong>{" "}
+                サーバーレス上では書き込み先が実行インスタンスごとに分かれ、再起動で消えるため、
+                17:00 に生成した記事が次のアクセス時に見つからないことがあります。
+                確実に残すには、永続ストレージ（Supabase）を繋ぐか、
+                常時起動のサーバーで動かしてください。
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
           <Panel className="overflow-hidden">
             <PanelHeader
               title="Drafts"
@@ -158,6 +278,7 @@ export default function NoteDraftsPage() {
               <Empty title="下書きを選択してください" />
             </Panel>
           )}
+          </div>
         </div>
       )}
     </div>
@@ -288,6 +409,17 @@ function DraftDetail({ draft, now }: { draft: NoteDraftSummary; now: number }) {
         </div>
       </div>
     </Panel>
+  );
+}
+
+function SetupStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent/12 text-3xs text-accent-soft">
+        {n}
+      </span>
+      <div className="min-w-0 flex-1 text-2xs leading-relaxed text-ink-muted">{children}</div>
+    </li>
   );
 }
 

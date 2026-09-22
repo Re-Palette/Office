@@ -179,6 +179,16 @@ export interface PublicRuntimeStatus {
   /** Where a finished note article goes, and when the daily job writes one. */
   noteOutput: NoteConfig["output"];
   noteDailyDraftAt: string;
+  /**
+   * Where this is running, and whether anything written survives.
+   *
+   * On serverless the only writable path is /tmp, which belongs to one
+   * instance and is cleared on a cold start — so work written by the nightly
+   * job may not be there when the dashboard asks for it. The UI says this out
+   * loud rather than letting drafts appear and vanish unexplained.
+   */
+  platform: "vercel" | "server";
+  persistence: "durable" | "ephemeral";
 }
 
 export function publicStatus(): PublicRuntimeStatus {
@@ -196,5 +206,7 @@ export function publicStatus(): PublicRuntimeStatus {
     integrations: { google: c.google.configured, note: true },
     noteOutput: c.note.output,
     noteDailyDraftAt: c.note.dailyDraftAt,
+    platform: process.env.VERCEL ? "vercel" : "server",
+    persistence: process.env.VERCEL ? "ephemeral" : "durable",
   };
 }

@@ -31,6 +31,8 @@ export interface RuntimeStatus {
   integrations?: { google: boolean; note: boolean };
   noteOutput?: "file" | "draft" | "publish";
   noteDailyDraftAt?: string;
+  platform?: "vercel" | "server";
+  persistence?: "durable" | "ephemeral";
 }
 
 export interface AgentRunSummary {
@@ -96,9 +98,30 @@ export async function setNoteDraftStatus(
  */
 export const JOB_POLL_INTERVAL = 180_000;
 
-/** Rings the company clock. Jobs are keyed by day, so extra calls are free. */
-export async function pokeScheduler(force = false): Promise<void> {
-  await fetch(`/api/cron${force ? "?force=1" : ""}`, { cache: "no-store" });
+export interface JobOutcome {
+  id: string;
+  status: "ran" | "skipped" | "failed" | "not_due";
+  detail: string;
+}
+
+/**
+ * Rings the company clock. Jobs are keyed by day, so extra calls are free.
+ *
+ * The outcome comes back rather than being swallowed: a CEO who presses
+ * "write one now" and waits two minutes is owed an answer either way.
+ */
+export async function pokeScheduler(force = false): Promise<JobOutcome[]> {
+  const response = await fetch(`/api/cron${force ? "?force=1" : ""}`, { cache: "no-store" });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(
+      detail.error === "not_configured"
+        ? "ANTHROPIC_API_KEY が設定されていないため実行できません。"
+        : (detail.error ?? `定期実行に失敗しました (${response.status})`),
+    );
+  }
+  const payload = (await response.json()) as { results?: JobOutcome[] };
+  return payload.results ?? [];
 }
 
 async function post<T>(url: string, body: unknown): Promise<T> {
