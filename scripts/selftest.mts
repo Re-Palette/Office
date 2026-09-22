@@ -29,7 +29,7 @@ const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
 );
 const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
 const { runDailyNoteDraft } = await import("../src/server/scheduler");
-const { readState, mutate, loadState, flushState, invalidate } = await import(
+const { readState, mutate, loadState, flushState, invalidate, storageStatus } = await import(
   "../src/server/runtime/store"
 );
 const { mergeState } = await import("../src/server/runtime/supabase-store");
@@ -747,10 +747,24 @@ check(
   `${settled.length} events`,
 );
 
+check("a working database reports healthy", storageStatus().healthy, storageStatus().backend);
+
+// A bad key must be visible, not silently fall back to memory and look fine.
 pg.close();
+invalidate();
+await loadState();
+const broken = storageStatus();
+check(
+  "an unreachable database reports unhealthy",
+  broken.backend === "supabase" && !broken.healthy && Boolean(broken.error),
+  broken.error?.slice(0, 50),
+);
+check("the company still runs on the fallback", readState().tasks.length > 0);
+
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 invalidate();
+check("with no database configured it reports the file backend", storageStatus().backend === "file");
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

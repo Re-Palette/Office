@@ -19,7 +19,7 @@ import type {
 import type { PendingAction } from "@/server/agents/tools";
 import type { NoteDraft } from "@/server/note-drafts";
 import type { JobRun } from "@/server/scheduler";
-import { getConfig } from "./config";
+import { getConfig, type StorageStatus } from "./config";
 import {
   insertRow,
   loadRow,
@@ -172,15 +172,25 @@ let baseVersion = 0;
 let dirty = false;
 let inFlight: Promise<void> | null = null;
 let queued = false;
+/**
+ * Why the last Supabase call failed, if it did.
+ *
+ * Configured and working are not the same thing: a mistyped key leaves every
+ * environment variable present, and the fallback to memory is deliberately
+ * quiet so a database blip cannot take the company down. Without this the two
+ * look identical from outside until data starts disappearing.
+ */
+let storageError: string | null = null;
 
 function credentials(): SupabaseCredentials | null {
   const { supabase } = getConfig();
   return supabase.configured ? { url: supabase.url, serviceKey: supabase.serviceKey } : null;
 }
 
-/** True when state is durable rather than tied to this instance's disk. */
-export function isDurable(): boolean {
-  return credentials() !== null;
+/** What is holding the state, and whether it is actually reachable. */
+export function storageStatus(): StorageStatus {
+  if (!credentials()) return { backend: "file", healthy: true, error: null };
+  return { backend: "supabase", healthy: storageError === null, error: storageError };
 }
 
 function filePath(): string {
@@ -288,6 +298,7 @@ export async function loadState(): Promise<WorkState> {
       cache = stored.state;
       baseVersion = stored.version;
       dirty = false;
+      storageError = null;
       return cache;
     }
 
@@ -303,17 +314,21 @@ export async function loadState(): Promise<WorkState> {
         cache = theirs.state;
         baseVersion = theirs.version;
         dirty = false;
+        storageError = null;
         return cache;
       }
     }
     cache = seeded;
     baseVersion = version ?? 1;
     dirty = false;
+    storageError = null;
     return cache;
   } catch (error) {
     // Supabase unreachable. Falling back to memory keeps the company running
-    // rather than failing the CEO's request outright; the flush will say so.
-    console.warn("[friday] Supabase load failed:", (error as Error).message);
+    // rather than failing the CEO's request outright — but it is recorded, so
+    // the dashboard can say the state is not being saved.
+    storageError = (error as Error).message;
+    console.warn("[friday] Supabase load failed:", storageError);
     return readState();
   }
 }
@@ -344,6 +359,7 @@ async function push(): Promise<void> {
     const version = await updateRow(creds, pending, baseVersion);
     if (version !== null) {
       baseVersion = version;
+      storageError = null;
       return;
     }
 
@@ -364,7 +380,8 @@ async function push(): Promise<void> {
       dirty = true;
     }
   } catch (error) {
-    console.warn("[friday] Supabase write failed:", (error as Error).message);
+    storageError = (error as Error).message;
+    console.warn("[friday] Supabase write failed:", storageError);
     dirty = true;
   }
 }

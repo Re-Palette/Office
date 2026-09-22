@@ -34,6 +34,8 @@ export interface RuntimeStatus {
   platform?: "vercel" | "server";
   persistence?: "durable" | "ephemeral";
   storage?: "supabase" | "file";
+  storageHealthy?: boolean;
+  storageError?: string | null;
 }
 
 export interface AgentRunSummary {

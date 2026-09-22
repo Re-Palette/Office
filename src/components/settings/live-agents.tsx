@@ -92,11 +92,13 @@ export function LiveAgents() {
                 icon={Database}
                 label={runtime?.storage === "supabase" ? "Supabase" : "ファイル保存"}
                 detail={
-                  runtime?.persistence === "durable"
-                    ? runtime?.storage === "supabase"
-                      ? "会社の状態は Supabase に保存され、再起動しても残ります"
-                      : ".friday/ に保存され、再起動しても残ります"
-                    : "サーバーレスの一時領域です。再起動で消えます（Supabase未設定）"
+                  runtime?.storage === "supabase" && runtime?.storageHealthy === false
+                    ? `Supabase に接続できていません: ${runtime.storageError ?? "unknown"}`
+                    : runtime?.persistence === "durable"
+                      ? runtime?.storage === "supabase"
+                        ? "会社の状態は Supabase に保存され、再起動しても残ります"
+                        : ".friday/ に保存され、再起動しても残ります"
+                      : "サーバーレスの一時領域です。再起動で消えます（Supabase未設定）"
                 }
                 on={runtime?.persistence === "durable"}
               />

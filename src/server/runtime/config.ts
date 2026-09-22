@@ -190,6 +190,12 @@ export function getConfig(): RuntimeConfig {
   };
 }
 
+export interface StorageStatus {
+  backend: "supabase" | "file";
+  healthy: boolean;
+  error: string | null;
+}
+
 /** Safe to expose to the browser — never includes the key itself. */
 export interface PublicRuntimeStatus {
   mode: RuntimeMode;
@@ -216,11 +222,18 @@ export interface PublicRuntimeStatus {
    */
   platform: "vercel" | "server";
   persistence: "durable" | "ephemeral";
-  /** What is actually holding the state. */
+  /** What is actually holding the state, and whether it is reachable. */
   storage: "supabase" | "file";
+  /** False when Supabase is configured but the last call to it failed. */
+  storageHealthy: boolean;
+  storageError: string | null;
 }
 
-export function publicStatus(): PublicRuntimeStatus {
+/**
+ * `storage` is passed in rather than read here, so this module stays free of
+ * any dependency on the store — which depends on it.
+ */
+export function publicStatus(storage: StorageStatus): PublicRuntimeStatus {
   const c = getConfig();
   return {
     mode: c.mode,
@@ -238,7 +251,14 @@ export function publicStatus(): PublicRuntimeStatus {
     platform: process.env.VERCEL ? "vercel" : "server",
     // Supabase is durable anywhere. Without it, a normal server's disk still
     // survives a restart; a serverless instance's /tmp does not.
-    persistence: c.supabase.configured || !process.env.VERCEL ? "durable" : "ephemeral",
-    storage: c.supabase.configured ? "supabase" : "file",
+    // Configured is not the same as working: a bad key would otherwise read
+    // as durable right up until the first thing quietly failed to save.
+    persistence:
+      (storage.backend === "supabase" && storage.healthy) || !process.env.VERCEL
+        ? "durable"
+        : "ephemeral",
+    storage: storage.backend,
+    storageHealthy: storage.healthy,
+    storageError: storage.error,
   };
 }
