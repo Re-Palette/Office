@@ -86,7 +86,8 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(3
 
 /* ── Prompt ───────────────────────────────────────────────────────────────── */
 
-function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean): string {
+/** Exported so the prompt actually sent can be measured, not approximated. */
+export function buildSystem(agentId: string, canDelegate: boolean, canReport: boolean): string {
   const agent = AGENTS_BY_ID[agentId];
   if (!agent) throw new Error(`Unknown agent: ${agentId}`);
 
