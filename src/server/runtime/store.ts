@@ -20,6 +20,13 @@ import type { PendingAction } from "@/server/agents/tools";
 import type { NoteDraft } from "@/server/note-drafts";
 import type { JobRun } from "@/server/scheduler";
 import { getConfig } from "./config";
+import {
+  insertRow,
+  loadRow,
+  mergeState,
+  updateRow,
+  type SupabaseCredentials,
+} from "./supabase-store";
 
 /**
  * The company's working state, on the server, on disk.
@@ -28,9 +35,14 @@ import { getConfig } from "./config";
  * AI employees append activity, create tasks, submit reports and raise approval
  * requests against it, and the dashboard reads it back.
  *
- * A JSON file is deliberate — one CEO, low write volume, zero setup, and it
- * survives restarts. Phase 3's Supabase migration replaces this module's six
- * exported functions and nothing else.
+ * Two backends sit behind one synchronous API. Without Supabase configured it
+ * is a JSON file — one CEO, low write volume, zero setup, survives restarts.
+ * With Supabase it is a single row, which is what makes this work on
+ * serverless, where /tmp belongs to one instance and disappears.
+ *
+ * Both keep the same shape: callers still mutate a plain object synchronously.
+ * What changes is when it is persisted — a request loads once at the start and
+ * flushes at the end, so nothing downstream had to become async.
  */
 
 export interface AgentRuntimeState {
@@ -154,6 +166,22 @@ function seedState(): WorkState {
 }
 
 let cache: WorkState | null = null;
+/** Version of the row `cache` was loaded from. 0 means "not from Supabase". */
+let baseVersion = 0;
+/** Set by mutate(); cleared once the change has reached the backend. */
+let dirty = false;
+let inFlight: Promise<void> | null = null;
+let queued = false;
+
+function credentials(): SupabaseCredentials | null {
+  const { supabase } = getConfig();
+  return supabase.configured ? { url: supabase.url, serviceKey: supabase.serviceKey } : null;
+}
+
+/** True when state is durable rather than tied to this instance's disk. */
+export function isDurable(): boolean {
+  return credentials() !== null;
+}
 
 function filePath(): string {
   const { dataDir } = getConfig();
@@ -200,7 +228,25 @@ function writeState(state: WorkState): void {
   }
 }
 
-/** The only mutation path. Keeps trimming and persistence in one place. */
+/**
+ * Reads the state without marking it dirty.
+ *
+ * The distinction matters on Supabase: the dashboard polls every couple of
+ * seconds, and if a look counted as a change, that polling would write the row
+ * constantly and collide with whatever an AI employee was doing.
+ */
+export function read<T>(fn: (state: WorkState) => T): T {
+  return fn(readState());
+}
+
+/**
+ * The only mutation path. Keeps trimming and persistence in one place.
+ *
+ * Every call is treated as a write — detecting "did this actually change
+ * anything" by inspection was tried and got it wrong, because most writers
+ * edit a field in place and leave every length and counter untouched. Callers
+ * that only look use read() instead, and say so.
+ */
 export function mutate<T>(fn: (state: WorkState) => T): T {
   const state = readState();
   const result = fn(state);
@@ -212,19 +258,151 @@ export function mutate<T>(fn: (state: WorkState) => T): T {
     state.runs = state.runs.slice(0, MAX_RUNS);
   }
   state.updatedAt = Date.now();
-
   cache = state;
-  writeState(state);
+  dirty = true;
+
+  if (credentials()) scheduleFlush();
+  else writeState(state);
+
   return result;
+}
+
+/* ── Loading and flushing around a request ────────────────────────────────── */
+
+/**
+ * Pulls the current state in. Call once at the start of a request.
+ *
+ * On the file backend this is what readState() already did. On Supabase it is
+ * the row — and it has to happen per request, because a serverless instance
+ * that handled the last one may never see this one.
+ */
+export async function loadState(): Promise<WorkState> {
+  const creds = credentials();
+  if (!creds) return readState();
+
+  try {
+    const stored = await loadRow(creds);
+    if (stored) {
+      stored.state.noteDrafts ??= [];
+      stored.state.jobs ??= [];
+      cache = stored.state;
+      baseVersion = stored.version;
+      dirty = false;
+      return cache;
+    }
+
+    // First run against an empty database.
+    const seeded = seedState();
+    const version = await insertRow(creds, seeded);
+    if (version === null) {
+      // Someone seeded it a moment before us; take theirs.
+      const theirs = await loadRow(creds);
+      if (theirs) {
+        theirs.state.noteDrafts ??= [];
+        theirs.state.jobs ??= [];
+        cache = theirs.state;
+        baseVersion = theirs.version;
+        dirty = false;
+        return cache;
+      }
+    }
+    cache = seeded;
+    baseVersion = version ?? 1;
+    dirty = false;
+    return cache;
+  } catch (error) {
+    // Supabase unreachable. Falling back to memory keeps the company running
+    // rather than failing the CEO's request outright; the flush will say so.
+    console.warn("[friday] Supabase load failed:", (error as Error).message);
+    return readState();
+  }
+}
+
+/** Coalesced background write, so a long agent run is not a write per step. */
+function scheduleFlush(): void {
+  if (inFlight) {
+    queued = true;
+    return;
+  }
+  inFlight = push().finally(() => {
+    inFlight = null;
+    if (queued) {
+      queued = false;
+      scheduleFlush();
+    }
+  });
+}
+
+async function push(): Promise<void> {
+  const creds = credentials();
+  if (!creds || !cache || !dirty) return;
+
+  const pending = cache;
+  dirty = false;
+
+  try {
+    const version = await updateRow(creds, pending, baseVersion);
+    if (version !== null) {
+      baseVersion = version;
+      return;
+    }
+
+    // Someone wrote while we worked. Merge rather than overwrite, so neither
+    // side's work is the one that quietly disappears.
+    const theirs = await loadRow(creds);
+    if (!theirs) return;
+
+    const merged = mergeState(theirs.state, pending);
+    const retried = await updateRow(creds, merged, theirs.version);
+    cache = merged;
+
+    if (retried !== null) {
+      baseVersion = retried;
+    } else {
+      // Lost twice. Leave it dirty so the next flush picks it up.
+      baseVersion = theirs.version;
+      dirty = true;
+    }
+  } catch (error) {
+    console.warn("[friday] Supabase write failed:", (error as Error).message);
+    dirty = true;
+  }
+}
+
+/** Waits for every pending write. Call before a request finishes. */
+export async function flushState(): Promise<void> {
+  if (!credentials()) return;
+  if (dirty) scheduleFlush();
+  while (inFlight) await inFlight;
+}
+
+/**
+ * Loads, runs, flushes. Every route that touches company state uses this, so
+ * no handler has to remember both halves.
+ */
+export async function withState<T>(fn: () => Promise<T> | T): Promise<T> {
+  await loadState();
+  try {
+    return await fn();
+  } finally {
+    await flushState();
+  }
 }
 
 export function resetState(): WorkState {
   cache = seedState();
-  writeState(cache);
+  if (credentials()) {
+    dirty = true;
+    scheduleFlush();
+  } else {
+    writeState(cache);
+  }
   return cache;
 }
 
-/** Drops the in-memory copy so the next read comes from disk. */
+/** Drops the in-memory copy so the next read comes from the backend. */
 export function invalidate(): void {
   cache = null;
+  baseVersion = 0;
+  dirty = false;
 }

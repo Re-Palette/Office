@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { runAgent } from "@/server/agents/runner";
 
@@ -14,7 +15,7 @@ export const maxDuration = 300;
  * The COO answers using the company's real state, delegating when a question
  * genuinely belongs to someone else. Synchronous: the CEO is waiting.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const cfg = getConfig();
   if (cfg.mode === "demo") {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
@@ -44,3 +45,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json(result);
 }
+
+export const POST = stateful(handlePOST);

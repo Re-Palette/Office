@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { REPORT_TYPE_LABEL, type ReportType } from "@/lib/types";
 import { PROJECTS_BY_ID } from "@/lib/company/projects";
 import { DEPARTMENTS } from "@/lib/company/departments";
@@ -27,7 +28,7 @@ const AUTHOR: Record<string, string> = {
  * The author reads the company's actual state through its tools, then submits
  * via `submit_report`, which stores it, renders the PDF and files it for review.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const cfg = getConfig();
   if (cfg.mode === "demo") {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
@@ -82,3 +83,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ status: "started", agentId: options.agentId });
 }
+
+export const POST = stateful(handlePOST);

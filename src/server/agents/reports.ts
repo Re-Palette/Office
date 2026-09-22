@@ -12,7 +12,7 @@ import {
   type ReportContent,
   type ReportType,
 } from "@/lib/types";
-import { mutate } from "@/server/runtime/store";
+import { mutate, read } from "@/server/runtime/store";
 import { putReport } from "@/server/report-store";
 
 /**
@@ -43,7 +43,7 @@ export function submitReportFromAgent(
   const projectId = input.projectId ? String(input.projectId) : undefined;
   const departmentId = input.departmentId ? String(input.departmentId) : undefined;
 
-  const state = mutate((s) => s);
+  const state = read((s) => s);
 
   const scopedTasks = state.tasks.filter((t) =>
     projectId ? t.project === projectId : departmentId ? t.department === departmentId : true,

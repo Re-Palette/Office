@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { listDrafts, setDraftStatus, type NoteDraftStatus } from "@/server/note-drafts";
 import { jobHistory } from "@/server/scheduler";
@@ -7,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** The note articles waiting to be posted, newest first. */
-export async function GET() {
+async function handleGET() {
   if (getConfig().mode === "demo") {
     return NextResponse.json({ drafts: [], jobs: [] });
   }
@@ -18,7 +19,7 @@ export async function GET() {
 }
 
 /** The CEO marks a draft posted, or puts it aside. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (getConfig().mode === "demo") {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
@@ -42,3 +43,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ draft });
 }
+
+export const GET = stateful(handleGET);
+export const POST = stateful(handlePOST);

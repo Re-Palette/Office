@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { readState } from "@/server/runtime/store";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
  * The company's live working state. The dashboard polls this in live mode and
  * renders whatever the AI employees have actually done.
  */
-export async function GET() {
+async function handleGET() {
   if (getConfig().mode === "demo") {
     return NextResponse.json({ mode: "demo" });
   }
@@ -33,3 +34,5 @@ export async function GET() {
     { headers: { "Cache-Control": "no-store" } },
   );
 }
+
+export const GET = stateful(handleGET);

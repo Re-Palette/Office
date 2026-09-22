@@ -33,6 +33,7 @@ export interface RuntimeStatus {
   noteDailyDraftAt?: string;
   platform?: "vercel" | "server";
   persistence?: "durable" | "ephemeral";
+  storage?: "supabase" | "file";
 }
 
 export interface AgentRunSummary {

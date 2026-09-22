@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { jobHistory, runDailyNoteDraft, runDueJobs } from "@/server/scheduler";
 
@@ -25,7 +26,7 @@ function authorised(request: Request): boolean {
   return header === `Bearer ${secret}`;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   if (!authorised(request)) {
     return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   }
@@ -38,6 +39,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ results, history: jobHistory().slice(0, 10) });
 }
+
+export const GET = stateful(handleGET);
 
 /** Platform crons POST as often as they GET. */
 export const POST = GET;

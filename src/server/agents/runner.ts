@@ -5,7 +5,7 @@ import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import type { AgentStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
-import { mutate, type AgentRun } from "@/server/runtime/store";
+import { mutate, read, type AgentRun } from "@/server/runtime/store";
 import { googleReady } from "@/server/integrations/google";
 import {
   companyToolsFor,
@@ -566,7 +566,7 @@ export async function resumeRun(
   decision: "approved" | "rejected" | "revision_requested",
   comment?: string,
 ): Promise<RunResult | null> {
-  const stored = mutate((s) => s.runs.find((r) => r.id === runId));
+  const stored = read((s) => s.runs.find((r) => r.id === runId));
   if (!stored || stored.status !== "waiting_for_ceo" || !stored.messages) return null;
 
   const messages = stored.messages as Anthropic.MessageParam[];

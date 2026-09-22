@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { runAgent } from "@/server/agents/runner";
 
@@ -15,7 +16,7 @@ export const maxDuration = 300;
  * returns as soon as the work has started; the dashboard follows along through
  * the activity feed.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const cfg = getConfig();
   if (cfg.mode === "demo") {
     return NextResponse.json(
@@ -61,3 +62,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ status: "started", agentId: options.agentId });
 }
+
+export const POST = stateful(handlePOST);

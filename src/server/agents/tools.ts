@@ -9,7 +9,7 @@ import { COMPANY_KPIS, DEPARTMENT_LOAD, REVENUE_6M, THROUGHPUT_14D } from "@/lib
 import { isActiveStatus } from "@/lib/status";
 import type { ActivityEvent, Approval, Priority, Task } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
-import { mutate } from "@/server/runtime/store";
+import { mutate, read } from "@/server/runtime/store";
 import {
   GoogleApiError,
   GoogleAuthError,
@@ -1234,7 +1234,7 @@ function companyData(scope: string, filter?: string): string {
 
 function readCurrent() {
   // Imported lazily to keep this module usable from the tool schema side.
-  return mutate((s) => s);
+  return read((s) => s);
 }
 
 export const PROJECT_IDS = PROJECTS.map((p) => p.id);

@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { getConfig } from "@/server/runtime/config";
-import { mutate } from "@/server/runtime/store";
+import { mutate, read } from "@/server/runtime/store";
 
 /**
  * note drafts, as files.
@@ -157,14 +157,11 @@ function writeDraftFile(draft: NoteDraft): void {
 }
 
 export function listDrafts(): NoteDraft[] {
-  return mutate((s) => {
-    s.noteDrafts ??= [];
-    return [...s.noteDrafts];
-  });
+  return read((s) => [...(s.noteDrafts ?? [])]);
 }
 
 export function getDraft(id: string): NoteDraft | undefined {
-  return mutate((s) => s.noteDrafts?.find((d) => d.id === id));
+  return read((s) => s.noteDrafts?.find((d) => d.id === id));
 }
 
 /** The .md as text — from disk when it is there, re-rendered when it is not. */

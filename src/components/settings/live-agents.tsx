@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Cpu, FlaskConical, Globe, TerminalSquare } from "lucide-react";
+import { Check, Cpu, Database, Globe, TerminalSquare } from "lucide-react";
 import { useCompany } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Chip, Panel, PanelHeader } from "@/components/ui/primitives";
@@ -87,6 +87,18 @@ export function LiveAgents() {
                 label="Approval gate"
                 detail="送信・公開・課金・本番反映は必ずCEO承認で停止します"
                 on
+              />
+              <ToolRow
+                icon={Database}
+                label={runtime?.storage === "supabase" ? "Supabase" : "ファイル保存"}
+                detail={
+                  runtime?.persistence === "durable"
+                    ? runtime?.storage === "supabase"
+                      ? "会社の状態は Supabase に保存され、再起動しても残ります"
+                      : ".friday/ に保存され、再起動しても残ります"
+                    : "サーバーレスの一時領域です。再起動で消えます（Supabase未設定）"
+                }
+                on={runtime?.persistence === "durable"}
               />
             </ul>
           </div>

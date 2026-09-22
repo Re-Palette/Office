@@ -204,8 +204,14 @@ export default function NoteDraftsPage() {
                 <strong className="text-warn">この環境では下書きが消えます。</strong>{" "}
                 サーバーレス上では書き込み先が実行インスタンスごとに分かれ、再起動で消えるため、
                 17:00 に生成した記事が次のアクセス時に見つからないことがあります。
-                確実に残すには、永続ストレージ（Supabase）を繋ぐか、
-                常時起動のサーバーで動かしてください。
+                <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs">
+                  SUPABASE_URL
+                </code>
+                と
+                <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs">
+                  SUPABASE_SERVICE_ROLE_KEY
+                </code>
+                を設定すると、Supabase に保存されて残るようになります。
               </p>
             </div>
           )}

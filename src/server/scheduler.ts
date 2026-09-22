@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getConfig } from "@/server/runtime/config";
-import { mutate } from "@/server/runtime/store";
+import { mutate, read } from "@/server/runtime/store";
 import { runAgent } from "@/server/agents/runner";
 
 /**
@@ -43,7 +43,7 @@ function parseHHMM(value: string): number {
 }
 
 function alreadyRan(id: string, day: string): boolean {
-  return mutate((s) => (s.jobs ??= []).some((j) => j.id === id && j.ranFor === day && j.ok));
+  return read((s) => (s.jobs ?? []).some((j) => j.id === id && j.ranFor === day && j.ok));
 }
 
 function record(run: JobRun): void {
@@ -53,7 +53,7 @@ function record(run: JobRun): void {
 }
 
 export function jobHistory(): JobRun[] {
-  return mutate((s) => [...(s.jobs ?? [])]);
+  return read((s) => [...(s.jobs ?? [])]);
 }
 
 /* ── The daily note article ───────────────────────────────────────────────── */

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import type { ApprovalStatus, ReportStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
@@ -21,7 +22,7 @@ type Decision = "approved" | "rejected" | "revision_requested";
  * blocked task is released, and the AI employee that stopped to ask picks its
  * work back up from where it paused.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (getConfig().mode === "demo") {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
@@ -137,3 +138,5 @@ export async function POST(request: Request) {
     agent: resolved.runId ? AGENTS_BY_ID[resolved.report?.createdBy ?? ""]?.role : undefined,
   });
 }
+
+export const POST = stateful(handlePOST);

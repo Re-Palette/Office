@@ -29,7 +29,10 @@ const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
 );
 const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
 const { runDailyNoteDraft } = await import("../src/server/scheduler");
-const { readState, mutate } = await import("../src/server/runtime/store");
+const { readState, mutate, loadState, flushState, invalidate } = await import(
+  "../src/server/runtime/store"
+);
+const { mergeState } = await import("../src/server/runtime/supabase-store");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
@@ -542,6 +545,212 @@ check("but its draft is kept on note", note.drafts.length === 2);
 
 delete process.env.NOTE_OUTPUT;
 delete process.env.NOTE_AUTH_TOKEN;
+
+// ── Supabase: the merge that stops a losing write from eating work ─────────
+console.log("\n=== Supabase state store ===\n");
+
+const base = readState();
+// Later than anything the earlier scenarios wrote, so ordering is testable.
+const t0 = Date.now() + 60_000;
+
+/** Two instances that each added something while the other was working. */
+const theirs = structuredClone(base);
+theirs.activity = [
+  { id: "act-theirs", kind: "agent.started", agentId: "coo", at: t0, message: "向こうの作業" },
+  ...theirs.activity,
+];
+theirs.usage = { inputTokens: 900, outputTokens: 80, runs: 3 };
+
+const ours = structuredClone(base);
+ours.activity = [
+  { id: "act-ours", kind: "agent.started", agentId: "cto", at: t0 + 1000, message: "こちらの作業" },
+  ...ours.activity,
+];
+ours.noteDrafts = [
+  {
+    id: "nd-ours",
+    title: "こちらが書いた記事",
+    body: "本文",
+    tags: [],
+    rationale: "",
+    createdBy: "content_ai",
+    createdAt: t0,
+    updatedAt: t0,
+    status: "READY" as const,
+    file: "2026-09-22-x.md",
+  },
+];
+ours.usage = { inputTokens: 500, outputTokens: 120, runs: 2 };
+
+const merged = mergeState(theirs, ours);
+
+check(
+  "a merge keeps both sides' activity",
+  merged.activity.some((e) => e.id === "act-theirs") &&
+    merged.activity.some((e) => e.id === "act-ours"),
+);
+check("newest activity stays first", merged.activity[0]?.id === "act-ours", merged.activity[0]?.id);
+check(
+  "the article written during the conflict survives",
+  merged.noteDrafts.some((d) => d.id === "nd-ours"),
+);
+check(
+  "counters take the higher reading rather than regressing",
+  merged.usage.inputTokens === 900 && merged.usage.outputTokens === 120 && merged.usage.runs === 3,
+  JSON.stringify(merged.usage),
+);
+check("nothing is duplicated", new Set(merged.activity.map((e) => e.id)).size === merged.activity.length);
+
+// A finished job must beat one still marked in flight, whoever wrote it.
+const withJobs = mergeState(
+  { ...theirs, jobs: [{ id: "note-daily-draft", ranFor: "2026-09-22", at: 10, ok: false, detail: "実行中" }] },
+  { ...ours, jobs: [{ id: "note-daily-draft", ranFor: "2026-09-22", at: 20, ok: true, detail: "完了" }] },
+);
+check(
+  "a completed job wins over one still in flight",
+  withJobs.jobs.length === 1 && withJobs.jobs[0].ok,
+  JSON.stringify(withJobs.jobs),
+);
+
+// The employee seen most recently is the truer picture.
+const withAgents = mergeState(
+  { ...theirs, agents: { coo: { status: "idle" as const, lastActiveAt: 500, tasksCompleted: 1 } } },
+  { ...ours, agents: { coo: { status: "working" as const, lastActiveAt: 900, tasksCompleted: 2 } } },
+);
+check(
+  "the more recent view of an employee wins",
+  withAgents.agents.coo.status === "working" && withAgents.agents.coo.tasksCompleted === 2,
+);
+
+// ── The real client, against a stand-in for PostgREST ──────────────────────
+//
+// The merge above is pure logic. This exercises the code that actually talks
+// to Supabase — the URLs, the headers, the version check — by pointing it at a
+// server that answers the way PostgREST does.
+console.log("\n=== Supabase round trip (stubbed PostgREST) ===\n");
+
+const { createServer } = await import("node:http");
+
+let row: { version: number; state: Record<string, unknown> } | null = null;
+let sawServiceKey = false;
+
+const pg = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  sawServiceKey = req.headers.authorization === "Bearer service-key-for-test";
+
+  const send = (status: number, body: unknown) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+
+  const readBody = async () => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  };
+
+  if (req.method === "GET") {
+    return send(200, row ? [{ state: row.state, version: row.version }] : []);
+  }
+
+  if (req.method === "POST") {
+    return void readBody().then((body) => {
+      if (row) return send(201, []); // resolution=ignore-duplicates
+      row = { version: 1, state: body.state };
+      send(201, [{ version: 1 }]);
+    });
+  }
+
+  if (req.method === "PATCH") {
+    return void readBody().then((body) => {
+      // PostgREST filters on version=eq.N; a stale writer matches no rows.
+      const expected = Number(url.searchParams.get("version")?.replace("eq.", ""));
+      if (!row || row.version !== expected) return send(200, []);
+      row = { version: body.version, state: body.state };
+      send(200, [{ version: row.version }]);
+    });
+  }
+
+  send(405, {});
+});
+
+await new Promise<void>((resolve) => pg.listen(0, "127.0.0.1", resolve));
+const port = (pg.address() as { port: number }).port;
+
+process.env.SUPABASE_URL = `http://127.0.0.1:${port}`;
+process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key-for-test";
+
+invalidate();
+const first = await loadState();
+check("an empty database gets seeded", Boolean(row), `version ${row?.version}`);
+check("the service role key is sent", sawServiceKey);
+check("the seed has the company in it", first.tasks.length > 0);
+
+mutate((st) => {
+  st.noteDrafts = [
+    {
+      id: "nd-supabase",
+      title: "Supabase に保存される記事",
+      body: "本文",
+      tags: ["test"],
+      rationale: "",
+      createdBy: "content_ai",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: "READY" as const,
+      file: "2026-09-22-supabase.md",
+    },
+  ];
+});
+await flushState();
+
+check("a change reaches the database", row!.version > 1, `version ${row?.version}`);
+
+// A cold start: nothing in memory, everything from the row.
+invalidate();
+const reloaded = await loadState();
+check(
+  "it comes back on a fresh instance",
+  reloaded.noteDrafts.some((d) => d.id === "nd-supabase"),
+  `${reloaded.noteDrafts.length} draft(s)`,
+);
+
+// A read must not cost a write, or polling would fight the nightly job.
+const versionBeforeRead = row!.version;
+listDrafts();
+await flushState();
+check("reading does not bump the version", row!.version === versionBeforeRead, `${row?.version}`);
+
+// Another instance writes while we hold a stale copy: nothing may be lost.
+mutate((st) => {
+  st.activity = [
+    { id: "act-local", kind: "agent.started", agentId: "cto", at: Date.now(), message: "こちらの追記" },
+    ...st.activity,
+  ];
+});
+row = {
+  version: row!.version + 1,
+  state: {
+    ...(row!.state as Record<string, unknown>),
+    activity: [
+      { id: "act-remote", kind: "agent.started", agentId: "coo", at: Date.now(), message: "別インスタンスの追記" },
+      ...((row!.state as { activity: unknown[] }).activity ?? []),
+    ],
+  },
+};
+await flushState();
+
+const settled = (row!.state as { activity: { id: string }[] }).activity;
+check(
+  "a conflicting write keeps both sides",
+  settled.some((e) => e.id === "act-local") && settled.some((e) => e.id === "act-remote"),
+  `${settled.length} events`,
+);
+
+pg.close();
+delete process.env.SUPABASE_URL;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+invalidate();
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

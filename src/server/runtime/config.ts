@@ -48,6 +48,19 @@ export interface NoteConfig {
   dailyDraftAt: string;
 }
 
+/**
+ * Supabase, which is what makes the company's state survive on serverless.
+ *
+ * The service role key bypasses row-level security, so it lives here and never
+ * leaves the server. Without both values the app falls back to a JSON file —
+ * fine on a machine with a disk, lossy on a serverless instance.
+ */
+export interface SupabaseConfig {
+  configured: boolean;
+  url: string;
+  serviceKey: string;
+}
+
 export interface RuntimeConfig {
   mode: RuntimeMode;
   hasApiKey: boolean;
@@ -65,6 +78,7 @@ export interface RuntimeConfig {
   webTools: boolean;
   google: GoogleConfig;
   note: NoteConfig;
+  supabase: SupabaseConfig;
   codeExecution: boolean;
   /**
    * Development only. Runs the whole pipeline with a scripted stand-in for the
@@ -137,6 +151,12 @@ function noteConfig(): NoteConfig {
   };
 }
 
+function supabaseConfig(): SupabaseConfig {
+  const url = str(process.env.SUPABASE_URL).replace(/\/+$/, "");
+  const serviceKey = str(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return { configured: Boolean(url && serviceKey), url, serviceKey };
+}
+
 export function getConfig(): RuntimeConfig {
   const testTransport = bool(process.env.FRIDAY_TEST_TRANSPORT, false);
   const hasApiKey =
@@ -158,6 +178,7 @@ export function getConfig(): RuntimeConfig {
     dataDir: dataDir(),
     google: googleConfig(),
     note: noteConfig(),
+    supabase: supabaseConfig(),
     webTools: bool(process.env.FRIDAY_WEB_TOOLS, true),
     codeExecution: bool(process.env.FRIDAY_CODE_EXECUTION, true),
   };
@@ -189,6 +210,8 @@ export interface PublicRuntimeStatus {
    */
   platform: "vercel" | "server";
   persistence: "durable" | "ephemeral";
+  /** What is actually holding the state. */
+  storage: "supabase" | "file";
 }
 
 export function publicStatus(): PublicRuntimeStatus {
@@ -207,6 +230,9 @@ export function publicStatus(): PublicRuntimeStatus {
     noteOutput: c.note.output,
     noteDailyDraftAt: c.note.dailyDraftAt,
     platform: process.env.VERCEL ? "vercel" : "server",
-    persistence: process.env.VERCEL ? "ephemeral" : "durable",
+    // Supabase is durable anywhere. Without it, a normal server's disk still
+    // survives a restart; a serverless instance's /tmp does not.
+    persistence: c.supabase.configured || !process.env.VERCEL ? "durable" : "ephemeral",
+    storage: c.supabase.configured ? "supabase" : "file",
   };
 }

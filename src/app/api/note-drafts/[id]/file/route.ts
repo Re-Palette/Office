@@ -1,11 +1,12 @@
 import { getConfig } from "@/server/runtime/config";
 import { getDraft, readDraftFile } from "@/server/note-drafts";
+import { stateful } from "@/server/runtime/stateful";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** The draft as a downloadable .md — the document the CEO opens. */
-export async function GET(
+async function handleGET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -29,3 +30,5 @@ export async function GET(
     },
   });
 }
+
+export const GET = stateful(handleGET);
