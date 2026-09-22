@@ -65,6 +65,19 @@ export function pushActivity(event: Omit<ActivityEvent, "id">): ActivityEvent {
 
 /* ── Tool definitions ─────────────────────────────────────────────────────── */
 
+/**
+ * These are deliberately not `strict: true`.
+ *
+ * Strict tool use compiles every schema into a grammar, and the compiler has a
+ * complexity ceiling the whole request shares. Eight tools was already over it:
+ * the API rejected the run with "Schema is too complex", so no AI employee
+ * could work at all. What strict buys — inputs guaranteed to match the schema —
+ * is something every executor below already does for itself, because a model
+ * can always be wrong in ways a schema cannot express (an id that does not
+ * exist, an article too short to publish). The schemas stay as they are; they
+ * are what tells the model what to send.
+ */
+
 const COMPANY_TOOLS: Anthropic.Tool[] = [
   {
     name: "log_progress",
@@ -79,7 +92,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["message"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "get_company_data",
@@ -101,7 +113,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["scope"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "search_knowledge",
@@ -115,7 +126,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["query"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "save_knowledge",
@@ -131,7 +141,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["title", "content", "tags"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "create_task",
@@ -149,7 +158,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["title", "description", "assignedAgent", "priority"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "complete_task",
@@ -163,7 +171,6 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
       required: ["taskId", "output"],
       additionalProperties: false,
     },
-    strict: true,
   },
 ];
 
@@ -186,7 +193,6 @@ const DELEGATE_TOOL: Anthropic.Tool = {
     required: ["agentId", "objective"],
     additionalProperties: false,
   },
-  strict: true,
 };
 
 const APPROVAL_TOOL: Anthropic.Tool = {
@@ -212,7 +218,6 @@ const APPROVAL_TOOL: Anthropic.Tool = {
     required: ["title", "summary", "impact", "risk", "priority", "kind"],
     additionalProperties: false,
   },
-  strict: true,
 };
 
 const REPORT_TOOL: Anthropic.Tool = {
@@ -278,7 +283,6 @@ const REPORT_TOOL: Anthropic.Tool = {
     ],
     additionalProperties: false,
   },
-  strict: true,
 };
 
 /* ── Gmail and Calendar ───────────────────────────────────────────────────── */
@@ -308,7 +312,6 @@ const EMAIL_TOOLS: Anthropic.Tool[] = [
       required: ["query"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "send_email",
@@ -333,7 +336,6 @@ const EMAIL_TOOLS: Anthropic.Tool[] = [
       required: ["to", "subject", "body", "reason"],
       additionalProperties: false,
     },
-    strict: true,
   },
 ];
 
@@ -352,7 +354,6 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       required: ["from", "to"],
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     name: "create_calendar_event",
@@ -375,7 +376,6 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       required: ["summary", "start", "end"],
       additionalProperties: false,
     },
-    strict: true,
   },
 ];
 
@@ -414,7 +414,6 @@ const NOTE_TOOLS: Anthropic.Tool[] = [
       required: ["title", "body", "tags", "reason"],
       additionalProperties: false,
     },
-    strict: true,
   },
 ];
 

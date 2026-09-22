@@ -27,6 +27,8 @@ const { __setGoogleClientForTesting, buildMime } = await import(
 const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
   "../src/server/integrations/note"
 );
+const { companyToolsFor } = await import("../src/server/agents/tools");
+const { AGENTS } = await import("../src/lib/company/agents");
 const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
 const { runDailyNoteDraft } = await import("../src/server/scheduler");
 const { readState, mutate, loadState, flushState, invalidate, storageStatus } = await import(
@@ -765,6 +767,68 @@ delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 invalidate();
 check("with no database configured it reports the file backend", storageStatus().backend === "file");
+
+// ── The tool payload the API actually receives ─────────────────────────────
+//
+// `strict: true` compiles every schema into a grammar against a complexity
+// ceiling the whole request shares. Eight tools crossed it and the API
+// answered "Schema is too complex" — every AI employee stopped working. This
+// asserts the shape stays inside what the API accepts, for every employee,
+// because the failure is invisible until a real request is made.
+console.log("\n=== Tool payload ===\n");
+
+let strictTools = 0;
+let badSchemas = 0;
+let widest = { agent: "", count: 0 };
+
+for (const agent of AGENTS) {
+  const tools = companyToolsFor({
+    agentId: agent.id,
+    canDelegate: agent.seniority === "executive",
+    canReport: true,
+  });
+
+  const names = tools.map((t) => t.name);
+  if (new Set(names).size !== names.length) {
+    badSchemas += 1;
+    console.log(`  duplicate tool name for ${agent.id}: ${names.join(", ")}`);
+  }
+  if (tools.length > widest.count) widest = { agent: agent.role, count: tools.length };
+
+  for (const tool of tools) {
+    if ((tool as unknown as Record<string, unknown>).strict === true) strictTools += 1;
+
+    // Every object still declares additionalProperties:false and required —
+    // the schemas are what tell the model what to send, so they stay correct
+    // even though nothing compiles them any more.
+    const walk = (node: unknown, path: string) => {
+      if (!node || typeof node !== "object") return;
+      const n = node as Record<string, unknown>;
+      if (n.type === "object" || n.properties) {
+        if (n.additionalProperties !== false || !Array.isArray(n.required)) {
+          badSchemas += 1;
+          console.log(`  ${tool.name} ${path}: malformed object schema`);
+        }
+      }
+      for (const [k, v] of Object.entries((n.properties ?? {}) as Record<string, unknown>)) {
+        walk(v, `${path}.${k}`);
+      }
+      if (n.items) walk(n.items, `${path}[]`);
+    };
+    walk(tool.input_schema, tool.name);
+  }
+}
+
+check("no tool asks for strict schema compilation", strictTools === 0, `${strictTools} found`);
+check("every tool schema is well formed", badSchemas === 0, `${badSchemas} problems`);
+// Not an API limit — without strict there is none. This is the "too many
+// tools confuses the model" guidance, and a tripwire if an integration ever
+// starts handing everyone everything.
+check(
+  "no employee is handed an unfocused tool set",
+  widest.count <= 16,
+  `${widest.agent}: ${widest.count} tools`,
+);
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);
