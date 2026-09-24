@@ -27,8 +27,10 @@ export const PROJECTS: Project[] = [
   {
     id: "re_palette",
     name: "Re-Palette",
-    codename: "BEAUTY / SUSTAINABILITY",
-    summary: "美容 × 循環をテーマにしたブランド。今期の最重要プロジェクト。",
+    codename: "BEAUTY / WELFARE",
+    summary:
+      "美容技術で、孤立傾向にある若者の社会復帰を支援する美容福祉事業。" +
+      "「伴走型整容教育」とサードプレイス「Nuance Lounge」が二本柱。今期の最重要プロジェクト。",
     status: "active",
     progress: 75,
     health: "on_track",
@@ -47,21 +49,45 @@ export const PROJECTS: Project[] = [
   {
     id: "newtone",
     name: "NEWTONE 2027",
-    codename: "STUDENT COSME POPUP",
-    summary: "学生コスメPOPUPの企画・運営。体験設計と集客を並行して進行。",
+    codename: "STUDENT BEAUTY POPUP",
+    summary:
+      "全国の学生美容ブランドを集めたPOPUPストア。出展ブランドと来場者を同時に集める二面市場であり、" +
+      "どちらか一方が欠けると成立しない。出展ブランドの確保が先行指標。",
     status: "active",
     progress: 42,
     health: "at_risk",
     owner: "coo",
-    agents: ["coo", "biz_dev", "proposal_ai", "designer_ai", "schedule_ai", "cfo"],
-    departments: ["strategy", "creative", "finance", "operations"],
+    agents: [
+      "coo",
+      "biz_dev",
+      "lead_ai",
+      "outreach_ai",
+      "proposal_ai",
+      "risk_ai",
+      "brand_ai",
+      "designer_ai",
+      "social_ai",
+      "content_ai",
+      "schedule_ai",
+      "cfo",
+      "ops_strategy",
+      "partnership_ai",
+      "user_research",
+      "trend_ai",
+    ],
+    departments: ["strategy", "sales", "creative", "marketing", "finance", "operations"],
     startedAt: ago(days(52)),
     deadline: ahead(days(48)),
     milestones: [
       { id: "m1", label: "コンセプト確定", done: true, due: ago(days(30)) },
       { id: "m2", label: "会場仮押さえ", done: true, due: ago(days(8)) },
-      { id: "m3", label: "出展者募集", done: false, due: ahead(days(14)) },
-      { id: "m4", label: "集客施策", done: false, due: ahead(days(40)) },
+      // The two-sided part. Brands must be locked before visitors are promised
+      // anything, because the lineup is what the visitor campaign sells.
+      { id: "m3", label: "出展ブランド20組の確定", done: false, due: ahead(days(14)) },
+      { id: "m4", label: "薬機法・景表法の表示チェック完了", done: false, due: ahead(days(21)) },
+      { id: "m5", label: "物販オペレーション確定（決済・在庫・売上分配）", done: false, due: ahead(days(28)) },
+      { id: "m6", label: "集客施策 / 来場目標800名", done: false, due: ahead(days(40)) },
+      { id: "m7", label: "開催", done: false, due: ahead(days(48)) },
     ],
   },
   {

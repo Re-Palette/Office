@@ -24,9 +24,10 @@ export const COMPANY = {
   positioning:
     "美容・教育・コミュニティ・テクノロジーの4つの事業を通じて、" +
     "一人ひとりが新しい一歩を踏み出せる機会を創造するソーシャルベンチャー。",
-  ceo: "陽大",
+  ceo: "鈴木 陽大",
+  ceoNote: "Re-Palette 創設者。高校在学中に単独で設立し、現在も代表を務める。",
   businesses: [
-    { no: "01", name: "Re-Palette", ja: "美容福祉事業", what: "美容を通じて、社会的孤立状態にある若者の社会復帰を支援する。" },
+    { no: "01", name: "Re-Palette", ja: "美容福祉事業", what: "美容を通じて、社会的孤立状態にある若者の社会復帰を支援する。2025年8月に学生団体として設立。名称は Re（再び）＋ Palette（個性を彩るパレット）＝「自らの手で人生の色彩を塗り直す」。" },
     { no: "02", name: "Education", ja: "教育事業", what: "人の可能性を広げる教育を通じて、未来の選択肢を増やす。" },
     { no: "03", name: "Community & Events", ja: "コミュニティ・イベント事業", what: "人と人がつながり、挑戦し合う場をつくり、新しい価値を生み出す。" },
     { no: "04", name: "AI & Technology", ja: "AI・IT事業", what: "テクノロジーで、教育・美容・福祉の可能性を広げる。" },
@@ -47,7 +48,7 @@ export function companyBrief(): string {
     `ビジョン: ${COMPANY.vision}`,
     `事業: ${COMPANY.positioning}`,
     ...COMPANY.businesses.map((b) => `  ${b.no} ${b.name}／${b.ja} — ${b.what}`),
-    `CEO: ${COMPANY.ceo}`,
+    `CEO: ${COMPANY.ceo} — ${COMPANY.ceoNote}`,
     `まだ公表していない情報（推測で書かない・必要ならCEOに確認する）: ${COMPANY.unknown.join("・")}`,
   ];
   return lines.join("\n");

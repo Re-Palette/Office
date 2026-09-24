@@ -1037,5 +1037,46 @@ check(
 const exec = buildSystem("coo", true, true);
 check("an executive gets the same brief", exec.includes("ミッション: 人と可能性の間に架け橋をつくる。"));
 
+// ── NEWTONE 2027 ───────────────────────────────────────────────────────────
+//
+// The project is two-sided: brands on one side, visitors on the other. A task
+// list that only covers the visitor half is the failure mode, so the shape of
+// the seed is asserted rather than just its presence.
+console.log("\n=== NEWTONE 2027 ===\n");
+
+const { PROJECTS_BY_ID } = await import("../src/lib/company/projects");
+const { TASKS, TASKS_BY_ID } = await import("../src/lib/company/tasks");
+const { KNOWLEDGE } = await import("../src/lib/company/knowledge");
+
+const newtone = PROJECTS_BY_ID["newtone"];
+const newtoneTasks = TASKS.filter((t) => t.project === "newtone");
+
+check("the project exists with an owner", newtone?.owner === "coo", newtone?.owner ?? "missing");
+check("it is staffed across more than one department", newtone.departments.length >= 5, String(newtone.departments.length));
+check("every assigned agent is on the project roster", newtoneTasks.every((t) => newtone.agents.includes(t.assignedAgent)), newtoneTasks.filter((t) => !newtone.agents.includes(t.assignedAgent)).map((t) => `${t.id}:${t.assignedAgent}`).join(",") || "ok");
+check("it carries real work, not one placeholder", newtoneTasks.length >= 12, String(newtoneTasks.length));
+
+// Brand recruitment is the lead indicator; without it there is nothing to sell.
+check("someone is finding the brands", newtoneTasks.some((t) => t.assignedAgent === "lead_ai"));
+check("someone owns the legal display check", newtoneTasks.some((t) => t.assignedAgent === "risk_ai"));
+check("someone owns retail operations", newtoneTasks.some((t) => t.assignedAgent === "ops_strategy"));
+check("and someone owns visitor turnout", newtoneTasks.some((t) => t.assignedAgent === "social_ai"));
+
+// Approaching outside brands is an irreversible external send.
+const outreach = TASKS_BY_ID["t-9002"];
+check("brand outreach cannot be sent without the CEO", outreach.status === "WAITING_FOR_CEO", outreach.status);
+check("and says why it is held", Boolean(outreach.blockedReason && outreach.approvalId), outreach.blockedReason ?? "none");
+
+check(
+  "the measured Nuance Lounge result is available to employees",
+  KNOWLEDGE.some((d) => d.excerpt.includes("4.6") && d.excerpt.includes("4.4")),
+);
+check(
+  "Re-Palette is no longer described as a sustainability brand",
+  !PROJECTS_BY_ID["re_palette"].summary.includes("循環") &&
+    PROJECTS_BY_ID["re_palette"].summary.includes("美容福祉"),
+  PROJECTS_BY_ID["re_palette"].summary.slice(0, 30),
+);
+
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);
