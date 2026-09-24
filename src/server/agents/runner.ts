@@ -3,6 +3,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
+import { companyBrief } from "@/lib/company/identity";
 import type { AgentStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
 import { mutate, read, type AgentRun } from "@/server/runtime/store";
@@ -106,6 +107,8 @@ export function buildSystem(agentId: string, canDelegate: boolean, canReport: bo
   return [
     agent.systemPrompt,
     "",
+    companyBrief(),
+    "",
     `[DEPARTMENT] ${department?.name ?? agent.department} — ${department?.mandate ?? ""}`,
     colleagues ? `[COLLEAGUES] ${colleagues}` : "",
     "",
@@ -124,6 +127,7 @@ export function buildSystem(agentId: string, canDelegate: boolean, canReport: bo
     hasNote
       ? "- note に出す記事は write_note_article に完成原稿を渡す。書き出す前に search_knowledge でブランドの文体と過去記事を確認し、同じ話を繰り返さない。"
       : "",
+    "- 会社について書くときは [COMPANY] の記述だけを使う。そこにない会社情報は書かない。",
     "- 事実・解釈・推奨を分けて書く。結論を先に述べる。",
     canDelegate
       ? "- 自分の担当外の作業は delegate で適切なAI社員へ委譲する。指示は単独で理解できる完結した内容にする。"

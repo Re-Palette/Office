@@ -20,9 +20,8 @@ process.env.ANTHROPIC_API_KEY = "sk-ant-selftest";
 process.env.NOTE_DAILY_DRAFT_AT = "00:00";
 process.env.FRIDAY_DATA_DIR = mkdtempSync(path.join(tmpdir(), "friday-selftest-"));
 
-const { runAgent, resumeRun, __setClientForTesting, describeBadRequest } = await import(
-  "../src/server/agents/runner"
-);
+const { runAgent, resumeRun, __setClientForTesting, describeBadRequest, buildSystem } =
+  await import("../src/server/agents/runner");
 const { __setGoogleClientForTesting, buildMime } = await import(
   "../src/server/integrations/google"
 );
@@ -1013,6 +1012,30 @@ check("an unavailable model names the way out", model.includes("FRIDAY_MODEL"), 
 
 const other = describeBadRequest("400 something unforeseen");
 check("anything else keeps its detail", other.includes("something unforeseen"), other.slice(0, 40));
+
+// ── What every employee is told about its own company ──────────────────────
+//
+// Agents used to be given a job and a department but never the company's
+// name, so anything written about ARQO itself was invented. The brief rides
+// in the cached system prompt, which means a leak here reaches all 48.
+console.log("\n=== Company identity ===\n");
+
+const brief = buildSystem("content_ai", false, false);
+check("every employee is told the company name", brief.includes("ARQO Inc."));
+check("and the mission verbatim", brief.includes("人と可能性の間に架け橋をつくる。"));
+check("and all four businesses", ["Re-Palette", "Education", "Community & Events", "AI & Technology"].every((b) => brief.includes(b)));
+check("and is told not to invent the rest", brief.includes("推測で書かない"));
+check(
+  "the homepage's placeholder contact never reaches an employee",
+  !brief.includes("example.com"),
+);
+check(
+  "the homepage's dummy news never reaches an employee",
+  !brief.includes("Nuance Lounge"),
+);
+
+const exec = buildSystem("coo", true, true);
+check("an executive gets the same brief", exec.includes("ミッション: 人と可能性の間に架け橋をつくる。"));
 
 console.log(`\n${failures === 0 ? "All checks passed." : `${failures} check(s) failed.`}\n`);
 process.exit(failures === 0 ? 0 : 1);

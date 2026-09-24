@@ -22,6 +22,11 @@ export const KNOWLEDGE: KnowledgeDoc[] = [
   { id: "k-18", title: "Company Memory — Past Decisions", category: "memory", owner: "knowledge_ai", updatedAt: ago(days(5)), excerpt: "過去の意思決定と、その後の結果を対にして保存。同種の判断時に参照する。", tags: ["memory"] },
   { id: "k-19", title: "提携提案書 テンプレート v3", category: "documents", owner: "partnership_ai", updatedAt: ago(hours(4)), excerpt: "提携スキーム・双方の利得・初手のアクションを1枚で示す構成。", tags: ["sales", "template"] },
   { id: "k-20", title: "SaaS 契約一覧と利用状況", category: "documents", owner: "cost_ai", updatedAt: ago(hours(7)), excerpt: "契約14件。うち2件が機能重複。月額¥31,000の削減余地。", tags: ["finance"] },
+  // Real company facts, taken from the company homepage. These are the only
+  // company-level statements an employee may repeat as fact.
+  { id: "k-21", title: "ARQO 会社概要", category: "brand", owner: "chief_of_staff", updatedAt: ago(hours(1)), excerpt: "ARQO Inc.。ミッションは「人と可能性の間に架け橋をつくる。」美容・教育・コミュニティ・テクノロジーの4事業を持つソーシャルベンチャー。", tags: ["company", "arqo", "brand"] },
+  { id: "k-22", title: "ARQO 4事業の定義", category: "brand", owner: "coo", updatedAt: ago(hours(1)), excerpt: "01 Re-Palette（美容福祉）/ 02 Education（教育）/ 03 Community & Events / 04 AI & Technology。Re-Palette は美容を通じた孤立状態の若者の社会復帰支援。", tags: ["company", "arqo", "re-palette"] },
+  { id: "k-23", title: "ARQO 未公表情報リスト", category: "brand", owner: "risk_ai", updatedAt: ago(hours(1)), excerpt: "設立年月日・所在地・問い合わせ先・資本金・従業員数は未公表。記事や対外文書でこれらに触れない。推測で補わない。", tags: ["company", "policy", "risk"] },
 ];
 
 export const KNOWLEDGE_CATEGORIES: { id: KnowledgeDoc["category"]; label: string }[] = [
