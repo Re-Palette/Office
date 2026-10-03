@@ -37,8 +37,17 @@ const { readState, mutate, loadState, flushState, invalidate, storageStatus } = 
 );
 const { mergeState } = await import("../src/server/runtime/supabase-store");
 const { diagnoseSupabase } = await import("../src/server/runtime/diagnose");
-const { createGeminiProvider, describeGeminiError, foldChunks, toGeminiContents, toGeminiSchema } =
-  await import("../src/lib/ai/gemini");
+const {
+  __clearSubstitutionsForTesting,
+  createGeminiProvider,
+  describeGeminiError,
+  foldChunks,
+  modelSubstitutions,
+  parseModelId,
+  pickModel,
+  toGeminiContents,
+  toGeminiSchema,
+} = await import("../src/lib/ai/gemini");
 const { checkFetchUrl, htmlToText } = await import("../src/lib/ai/server-tools");
 const { createAnthropicProvider, toAnthropicMessages } = await import("../src/lib/ai/anthropic");
 const { createOpenAiProvider, fromCompletion, toOpenAiMessages } = await import(
@@ -1461,17 +1470,138 @@ const lite = envScope(
   { ...noKeys, GEMINI_API_KEY: "AIza-x" },
   () => getConfig(),
 );
-check("the executives run on Flash-Lite by default", lite.model === "gemini-2.5-flash-lite", lite.model);
-check("so do the specialists", lite.workerModel === "gemini-2.5-flash-lite", lite.workerModel);
-check("and so do the nested search calls", lite.searchModel === "gemini-2.5-flash-lite", lite.searchModel);
+// Asserted as a property rather than a string: the exact id will change
+// again, and a test pinned to it would fail for the wrong reason.
+const isLite = (id: string) => id.includes("flash-lite") && !id.startsWith("gemini-2.");
+check("the executives run on Flash-Lite by default", isLite(lite.model), lite.model);
+check("so do the specialists", isLite(lite.workerModel), lite.workerModel);
+check("and so do the nested search calls", isLite(lite.searchModel), lite.searchModel);
 // Reasoning tokens bill as output and eat the per-minute token allowance.
 check("thinking defaults to low, not medium", lite.thinking === "low", lite.thinking);
 // Raising only the executives must stay possible.
 const raised = envScope(
-  { ...noKeys, GEMINI_API_KEY: "AIza-x", GEMINI_MODEL: "gemini-2.5-flash" },
+  { ...noKeys, GEMINI_API_KEY: "AIza-x", GEMINI_MODEL: "gemini-3.6-flash" },
   () => getConfig(),
 );
-check("the executives can be raised on their own", raised.model === "gemini-2.5-flash" && raised.workerModel === "gemini-2.5-flash-lite");
+check(
+  "the executives can be raised on their own",
+  raised.model === "gemini-3.6-flash" && isLite(raised.workerModel),
+  `${raised.model} / ${raised.workerModel}`,
+);
+
+// ── Surviving a retired model id ───────────────────────────────────────────
+//
+// This is the failure that already happened once: the 2.5 line this shipped
+// against was announced for October and was already 404ing for new projects
+// months earlier. A pinned id is a dated fuse, so a 404 is answered from the
+// live model list instead of ending the run.
+console.log("\n=== Retired model recovery ===\n");
+
+const lineup = [
+  "gemini-2.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-pro-preview",
+  "gemini-3.5-flash-lite",
+  "gemini-3.6-flash",
+];
+
+check("a live id is returned unchanged", pickModel("gemini-3.1-flash-lite", lineup) === "gemini-3.1-flash-lite");
+// A full listing carries version suffixes the config would not name.
+check("a version-suffixed listing still matches", pickModel("gemini-3.1-flash-lite", ["gemini-3.1-flash-lite-001"]) === "gemini-3.1-flash-lite-001");
+
+// The replacement must stay in the same tier. Repairing a Flash-Lite outage
+// with a Pro model would work and quietly cost ten times as much.
+check(
+  "a retired Flash-Lite is replaced by the newest Flash-Lite",
+  pickModel("gemini-2.5-flash-lite", lineup) === "gemini-3.5-flash-lite",
+  String(pickModel("gemini-2.5-flash-lite", lineup)),
+);
+check(
+  "never by a more expensive tier",
+  pickModel("gemini-2.5-flash-lite", ["gemini-3.1-pro-preview", "gemini-3.5-flash-lite"]) === "gemini-3.5-flash-lite",
+);
+// Only when the tier is gone entirely does it move, and then downward in cost.
+check(
+  "with no Flash-Lite at all it falls to Flash, not Pro",
+  pickModel("gemini-2.5-flash-lite", ["gemini-3.6-flash", "gemini-3.1-pro-preview"]) === "gemini-3.6-flash",
+);
+check(
+  "stable is preferred over preview",
+  pickModel("gemini-9-flash", ["gemini-3.6-flash", "gemini-4-flash-preview"]) === "gemini-3.6-flash",
+  String(pickModel("gemini-9-flash", ["gemini-3.6-flash", "gemini-4-flash-preview"])),
+);
+check("a preview is taken when nothing stable exists", pickModel("gemini-9-flash", ["gemini-4-flash-preview"]) === "gemini-4-flash-preview");
+check("an empty list is reported, not guessed around", pickModel("gemini-3.1-flash-lite", []) === null);
+
+check("versions parse, including minor ones", parseModelId("gemini-3.1-flash-lite").version === 3.1);
+check("and the tier is read from the id", parseModelId("gemini-3.5-flash-lite").tier === "flash-lite");
+check("flash-lite is not mistaken for flash", parseModelId("gemini-3.6-flash").tier === "flash");
+
+/* End to end: a 404 becomes a working call, once, and is remembered. */
+__clearSubstitutionsForTesting();
+
+let calls: string[] = [];
+const retiringFetch = (async (url: string) => {
+  const path = String(url);
+  if (path.includes("/models?")) {
+    return new Response(
+      JSON.stringify({
+        models: lineup.map((m) => ({
+          name: `models/${m}`,
+          supportedGenerationMethods: ["generateContent"],
+        })),
+      }),
+      { status: 200 },
+    );
+  }
+  const asked = /models\/([^:]+):/.exec(path)?.[1] ?? "";
+  calls.push(asked);
+  if (asked.startsWith("gemini-2.5")) {
+    return new Response(JSON.stringify({ error: { code: 404, message: "models/x is not found" } }), {
+      status: 404,
+    });
+  }
+  return new Response('data: {"candidates":[{"content":{"parts":[{"text":"動きました"}]},"finishReason":"STOP"}]}\n\n', {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}) as unknown as typeof fetch;
+
+const retiring = createGeminiProvider({
+  apiKey: "k",
+  searchModel: "gemini-2.5-flash-lite",
+  fetchImpl: retiringFetch,
+});
+
+const req = {
+  model: "gemini-2.5-flash-lite",
+  system: "s",
+  messages: [{ role: "user" as const, content: "x" }],
+  tools: [],
+  maxOutputTokens: 256,
+  thinking: "off" as const,
+};
+
+const after404 = await retiring.send(req);
+check("a retired model does not end the run", after404.blocks[0]?.type === "text", after404.stopReason);
+check("the retired id was tried, then the replacement", calls.join(" → ") === "gemini-2.5-flash-lite → gemini-3.5-flash-lite", calls.join(" → "));
+check("and the swap is recorded, not hidden", modelSubstitutions()["gemini-2.5-flash-lite"] === "gemini-3.5-flash-lite");
+
+// The lookup happens once: a per-request 404 would double every call.
+calls = [];
+await retiring.send(req);
+check("the next call goes straight to the replacement", calls.join("") === "gemini-3.5-flash-lite", calls.join(" → "));
+
+__clearSubstitutionsForTesting();
+
+// The default must not be a model that is already being retired.
+const current = envScope({ ...noKeys, GEMINI_API_KEY: "AIza-x" }, () => getConfig());
+check(
+  "the default model is not from the retired 2.5 line",
+  !current.model.startsWith("gemini-2.5"),
+  current.model,
+);
+check("and is a Flash-Lite", current.model.includes("flash-lite"), current.model);
 
 // ── Changing provider later ────────────────────────────────────────────────
 //

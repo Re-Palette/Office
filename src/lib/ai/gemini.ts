@@ -358,6 +358,100 @@ export function thinkingBudget(level: ModelRequest["thinking"]): number {
   }
 }
 
+/* ── Surviving a retired model id ─────────────────────────────────────────── */
+
+/**
+ * Google retires model ids faster than a config file gets revisited.
+ *
+ * The 2.5 line this codebase first shipped against was announced for October
+ * and already returning 404 to new projects months earlier, so a pinned id is
+ * a dated fuse rather than a setting. Rather than leave the company dead until
+ * someone notices, a 404 is treated as a question — which models does this key
+ * actually have? — and answered from the live list.
+ *
+ * Kept pure and separate from the request so the choice can be tested without
+ * a network, because the interesting part is the preference order, not the call.
+ */
+
+interface Parsed {
+  version: number;
+  tier: "flash-lite" | "flash" | "pro" | "other";
+  preview: boolean;
+}
+
+export function parseModelId(id: string): Parsed {
+  const version = Number.parseFloat(/gemini-(\d+(?:\.\d+)?)/.exec(id)?.[1] ?? "0") || 0;
+  const tier = /flash-lite/.test(id)
+    ? "flash-lite"
+    : /flash/.test(id)
+      ? "flash"
+      : /pro/.test(id)
+        ? "pro"
+        : "other";
+  return { version, tier, preview: /preview|exp\b/.test(id) };
+}
+
+/** Cheapest tier first: the fallback must not quietly cost more than the original. */
+const TIER_ORDER: Parsed["tier"][] = ["flash-lite", "flash", "pro"];
+
+/**
+ * Picks the closest live replacement for a model id.
+ *
+ * Same tier first, so a Flash-Lite outage is never silently repaired with a
+ * Pro model and a bill; then the newest stable version, with a preview build
+ * taken only if nothing stable exists. Returns null when the list holds
+ * nothing usable, which the caller reports rather than guessing around.
+ */
+export function pickModel(wanted: string, available: string[]): string | null {
+  if (available.length === 0) return null;
+
+  // An id may be listed in full with a version suffix (…-flash-lite-001).
+  const exact = available.find((m) => m === wanted || m.startsWith(`${wanted}-`));
+  if (exact) return exact;
+
+  const target = parseModelId(wanted);
+  const parsed = available.map((id) => ({ id, ...parseModelId(id) }));
+
+  // Start at the wanted tier and only ever move to a cheaper-or-equal one.
+  const from = Math.max(0, TIER_ORDER.indexOf(target.tier));
+  const tiers =
+    target.tier === "other" ? TIER_ORDER : TIER_ORDER.slice(from).concat(TIER_ORDER.slice(0, from));
+
+  for (const tier of tiers) {
+    const candidates = parsed.filter((m) => m.tier === tier);
+    if (candidates.length === 0) continue;
+
+    const best = candidates
+      .slice()
+      .sort(
+        (a, b) =>
+          // Stable over preview, then newest, then the shorter name — which is
+          // the unsuffixed alias Google keeps pointed at the current build.
+          Number(a.preview) - Number(b.preview) ||
+          b.version - a.version ||
+          a.id.length - b.id.length,
+      )[0];
+    return best.id;
+  }
+
+  return null;
+}
+
+/**
+ * Substitutions already worked out, so one 404 costs one lookup rather than
+ * one per request. Process-scoped: a deploy or a restart re-checks.
+ */
+const substitutions = new Map<string, string>();
+
+/** What the setup check reports, so a silent swap is never actually silent. */
+export function modelSubstitutions(): Record<string, string> {
+  return Object.fromEntries(substitutions);
+}
+
+export function __clearSubstitutionsForTesting(): void {
+  substitutions.clear();
+}
+
 /* ── The provider ─────────────────────────────────────────────────────────── */
 
 export interface GeminiOptions {
@@ -418,14 +512,19 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
         body.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
       }
 
-      const url =
-        `${HOST}/models/${encodeURIComponent(request.model)}:streamGenerateContent?alt=sse`;
+      // A model already known to have been retired is not asked for again.
+      let model = substitutions.get(request.model) ?? request.model;
+      let recovered = false;
 
-      // One retry, and only for a transient server fault. A quota error is
-      // never retried — see describeGeminiError.
+      // One retry, and only for a transient server fault or a retired model.
+      // A quota error is never retried — see describeGeminiError.
       let lastError: ProviderError | null = null;
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+        if (attempt > 0 && !recovered) await new Promise((r) => setTimeout(r, 1500));
+        recovered = false;
+
+        const url =
+          `${HOST}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
 
         let response: Response;
         try {
@@ -446,6 +545,24 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
 
         if (!response.ok) {
           const text = await response.text().catch(() => "");
+
+          // The model is gone. Ask what this key has and try the closest
+          // live equivalent once, rather than failing on a stale default.
+          if (response.status === 404 && attempt === 0 && !substitutions.has(request.model)) {
+            const { ok, models } = await listGeminiModels(options.apiKey, doFetch);
+            const replacement = ok ? pickModel(model, models) : null;
+            if (replacement && replacement !== model) {
+              console.warn(
+                `[friday] model ${model} is unavailable; using ${replacement}. ` +
+                  "GEMINI_MODEL を更新してください。",
+              );
+              substitutions.set(request.model, replacement);
+              model = replacement;
+              recovered = true;
+              continue;
+            }
+          }
+
           const { message, retryable } = describeGeminiError(response.status, text);
           lastError = new ProviderError(message, response.status, retryable);
           if (!retryable) throw lastError;

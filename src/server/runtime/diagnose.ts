@@ -1,7 +1,7 @@
 import "server-only";
 
 import { searchCapability } from "@/lib/ai";
-import { listGeminiModels } from "@/lib/ai/gemini";
+import { listGeminiModels, modelSubstitutions, pickModel } from "@/lib/ai/gemini";
 import { getConfig } from "./config";
 
 /**
@@ -302,6 +302,12 @@ export interface ModelDiagnosis {
   keys: Record<string, string>;
   /** Populated for providers that can be asked. Gemini can; the others cannot. */
   available: Record<string, boolean>;
+  /**
+   * Model ids that were retired and are being served by a replacement found
+   * in the live list. Present means the configured value is stale and should
+   * be updated — the company is working, but on a model nobody chose.
+   */
+  substituted: Record<string, string>;
   models: string[];
   verdict: string;
 }
@@ -337,6 +343,7 @@ export async function diagnoseModel(): Promise<ModelDiagnosis> {
       openai: LABELS[cfg.keyStatus.openai],
     },
     available: {},
+    substituted: modelSubstitutions(),
     models: [],
     verdict: "",
   };
@@ -398,6 +405,15 @@ export async function diagnoseModel(): Promise<ModelDiagnosis> {
     .filter(([, ok]) => !ok)
     .map(([id]) => id);
 
+  // Model ids go stale on Google's schedule, not the company's, so the check
+  // names the replacement it would use rather than only the problem.
+  const suggestions = missing
+    .map((id) => {
+      const replacement = pickModel(id, models);
+      return replacement ? `${id} → ${replacement}` : `${id} → 代替が見つかりません`;
+    })
+    .join(" / ");
+
   return {
     ...base,
     available,
@@ -405,7 +421,8 @@ export async function diagnoseModel(): Promise<ModelDiagnosis> {
     verdict:
       missing.length === 0
         ? `キーは有効で、設定されたモデルはすべて利用できます（${models.length}件にアクセス可能）。`
-        : `次のモデルがこのキーでは利用できません: ${missing.join(", ")}。` +
-          "models の一覧から選んで GEMINI_MODEL / GEMINI_WORKER_MODEL を設定してください。",
+        : `次のモデルがこのキーでは利用できません: ${suggestions}。` +
+          "実行時は自動で代替に切り替わりますが、GEMINI_MODEL / GEMINI_WORKER_MODEL を" +
+          "更新しておくと余計な往復がなくなります。",
   };
 }

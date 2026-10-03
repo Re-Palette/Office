@@ -152,15 +152,24 @@ const PROVIDER_DEFAULTS: Record<
   ProviderName,
   { model: string; workerModel: string; searchModel: string }
 > = {
-  // Lite everywhere. It is the cheapest model with the largest request
+  // Flash-Lite everywhere. It is the cheapest tier with the largest request
   // allowance, which is the binding constraint on a free key — and the work
   // here is reading company data and writing Japanese prose, not reasoning
-  // from scratch. FRIDAY_MODEL raises the executives to gemini-2.5-flash for
-  // anyone who would rather spend the allowance on quality.
+  // from scratch.
+  //
+  // 3.1 rather than 3.5: it is the documented upgrade path from the 2.5 line,
+  // it is stable rather than preview, it is the cheaper of the two, and its
+  // free allowance is the one Google actually publishes. 3.5-flash-lite is a
+  // one-variable change for anyone who wants the newer model.
+  //
+  // These ids will go stale — the 2.5 line this replaced was retired within
+  // months of being current, and returned 404 for new projects before its
+  // announced date. That is why pickModel() below exists: a retired id is
+  // recovered from the live model list rather than becoming an outage.
   gemini: {
-    model: "gemini-2.5-flash-lite",
-    workerModel: "gemini-2.5-flash-lite",
-    searchModel: "gemini-2.5-flash-lite",
+    model: "gemini-3.1-flash-lite",
+    workerModel: "gemini-3.1-flash-lite",
+    searchModel: "gemini-3.1-flash-lite",
   },
   anthropic: {
     model: "claude-opus-5",
@@ -524,11 +533,13 @@ export function getConfig(): RuntimeConfig {
     // The guard matters on a free key and is noise on a paid one, so it
     // follows the provider unless it is asked for explicitly.
     freeTierGuard: bool(process.env.FRIDAY_FREE_TIER, provider === "gemini"),
-    // Deliberately conservative, and deliberately not presented as the real
-    // limit: the published free-tier numbers disagree and move. The hard stop
-    // comes from the API's own 429, not from this number.
-    dailyRequestBudget: int(process.env.FRIDAY_DAILY_REQUEST_BUDGET, 200),
-    requestsPerMinute: int(process.env.FRIDAY_REQUESTS_PER_MINUTE, 8),
+    // Flash-Lite's published free allowance is 30 requests/minute and 1,500
+    // requests/day. These sit at roughly a third and a half of that: enough
+    // headroom that a normal day never reaches them, and enough margin that
+    // a figure which turns out to be wrong does not cost the whole day. The
+    // hard stop still comes from the API's own 429, never from this number.
+    dailyRequestBudget: int(process.env.FRIDAY_DAILY_REQUEST_BUDGET, 500),
+    requestsPerMinute: int(process.env.FRIDAY_REQUESTS_PER_MINUTE, 15),
     thinking: thinkingLevel(),
     // Lower than they were under a paid key: on the free tier every loop step
     // is one of a small number of requests per minute, so the ceilings double
