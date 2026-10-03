@@ -211,8 +211,41 @@ export function mergeState(theirs: WorkState, ours: WorkState): WorkState {
       runs: Math.max(theirs.usage.runs, ours.usage.runs),
     },
     quota: mergeQuota(theirs.quota, ours.quota),
+    meetings: mergeMeetings(theirs.meetings, ours.meetings),
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * A board meeting is filled in over several invocations, possibly on
+ * different instances, so the union of the sections is the real meeting —
+ * taking one side whole would silently drop an executive's report.
+ */
+function mergeMeetings(
+  theirs: WorkState["meetings"],
+  ours: WorkState["meetings"],
+): WorkState["meetings"] {
+  if (!theirs) return ours;
+  if (!ours) return theirs;
+
+  const byId = new Map<string, NonNullable<WorkState["meetings"]>[number]>();
+  for (const meeting of [...ours, ...theirs]) {
+    const seen = byId.get(meeting.id);
+    if (!seen) {
+      byId.set(meeting.id, { ...meeting, reports: [...meeting.reports] });
+      continue;
+    }
+    for (const report of meeting.reports) {
+      if (!seen.reports.some((r) => r.agentId === report.agentId)) seen.reports.push(report);
+    }
+    // Whichever side closed it has the minutes.
+    if (meeting.status === "completed") {
+      seen.status = "completed";
+      seen.summary = meeting.summary || seen.summary;
+      seen.decisions = meeting.decisions.length > 0 ? meeting.decisions : seen.decisions;
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, 30);
 }
 
 /**

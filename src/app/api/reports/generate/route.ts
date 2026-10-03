@@ -5,6 +5,7 @@ import { PROJECTS_BY_ID } from "@/lib/company/projects";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import { getConfig } from "@/server/runtime/config";
 import { runAgent } from "@/server/agents/runner";
+import { background } from "@/server/runtime/background";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,8 +79,7 @@ async function handlePOST(request: Request) {
     return NextResponse.json(result);
   }
 
-  const started = runAgent(options);
-  started.catch((error) => console.error("[friday] report run failed:", error));
+  background("report", () => runAgent(options));
 
   return NextResponse.json({ status: "started", agentId: options.agentId });
 }

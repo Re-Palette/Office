@@ -3,6 +3,7 @@
 import type {
   ActivityEvent,
   Approval,
+  BoardMeeting,
   NotificationItem,
   Report,
   Task,
@@ -85,6 +86,8 @@ export interface ServerState {
   runs?: AgentRunSummary[];
   usage?: { inputTokens: number; outputTokens: number; runs: number };
   noteDrafts?: NoteDraftSummary[];
+  /** Board meetings the executives have actually held. */
+  meetings?: BoardMeeting[];
 }
 
 /** A note article waiting for the CEO to post it. */

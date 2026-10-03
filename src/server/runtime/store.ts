@@ -8,14 +8,7 @@ import { SEED_APPROVALS, SEED_NOTIFICATIONS, SEED_REPORT_APPROVALS } from "@/lib
 import { SEED_REPORTS } from "@/lib/company/report-seed";
 import { TASKS } from "@/lib/company/tasks";
 import { SEED_NOW } from "@/lib/time";
-import type {
-  ActivityEvent,
-  AgentStatus,
-  Approval,
-  NotificationItem,
-  Report,
-  Task,
-} from "@/lib/types";
+import type { ActivityEvent, AgentStatus, Approval, BoardMeeting, NotificationItem, Report, Task } from "@/lib/types";
 import type { PendingAction } from "@/server/agents/tools";
 import type { NoteDraft } from "@/server/note-drafts";
 import type { JobRun } from "@/server/scheduler";
@@ -98,6 +91,12 @@ export interface WorkState {
   noteDrafts: NoteDraft[];
   /** Recurring jobs, keyed by the JST day they last ran for. */
   jobs: JobRun[];
+  /**
+   * Board meetings the executives have actually held. Assembled across
+   * several invocations — eight sections do not fit in one — so a
+   * part-finished meeting is a normal state here, not a broken one.
+   */
+  meetings?: BoardMeeting[];
   /** Cumulative spend so the CEO can see what the company costs to run. */
   usage: { inputTokens: number; outputTokens: number; runs: number };
   /**

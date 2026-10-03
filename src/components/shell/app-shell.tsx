@@ -21,7 +21,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const hydrateDecisions = useCompany((s) => s.hydrateDecisions);
   const tick = useCompany((s) => s.tick);
-  const runScheduledReports = useCompany((s) => s.runScheduledReports);
   const pokeScheduler = useCompany((s) => s.pokeScheduler);
   const detectRuntime = useCompany((s) => s.detectRuntime);
   const syncFromServer = useCompany((s) => s.syncFromServer);
@@ -68,16 +67,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(id);
   }, [mode, syncFromServer]);
 
-  /* Scheduled jobs — the Daily Executive Report fires when the clock reaches it. */
-  useEffect(() => {
-    const id = window.setInterval(runScheduledReports, 15_000);
-    return () => window.clearInterval(id);
-  }, [runScheduledReports]);
-
   /*
-   * Server-side jobs (the daily note article). A platform cron is the real
-   * trigger; this covers running locally, where there is no cron. Jobs are
-   * keyed by JST day, so ringing this every few minutes costs nothing.
+   * The company's recurring work — morning briefing, note article, daily
+   * report, weekly board meeting — all of it server-side and keyed by JST day.
+   *
+   * A platform cron is the real trigger. This poll exists because the free
+   * plan allows very few scheduled firings, so a job can fall due hours
+   * before anything rings; an open dashboard rings it instead. Ringing it
+   * repeatedly costs nothing, because a job that has run for today declines.
+   *
+   * The daily report used to be fired from here, client-side, on its own
+   * timer. It is now one of the server jobs, which is what stops it being
+   * written twice — once by the browser and once by the cron — at double the
+   * API spend.
    */
   useEffect(() => {
     if (mode !== "live") return;

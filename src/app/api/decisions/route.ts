@@ -5,6 +5,7 @@ import type { ApprovalStatus, ReportStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
 import { mutate } from "@/server/runtime/store";
 import { resumeRun } from "@/server/agents/runner";
+import { background } from "@/server/runtime/background";
 import { putReport } from "@/server/report-store";
 
 export const runtime = "nodejs";
@@ -122,13 +123,15 @@ async function handlePOST(request: Request) {
 
   if (resolved.report) putReport(resolved.report);
 
-  // Resuming can take a while — let it run and report back through the feed.
+  // Resuming can take a while, so the CEO is not kept waiting — but it must
+  // still actually happen. This is the path that carries out the action the
+  // CEO just approved; a dropped promise here meant an approved email was
+  // never sent, with nothing anywhere saying so.
   let resumed = false;
   if (resolved.runId) {
     resumed = true;
-    resumeRun(resolved.runId, decision, body.comment).catch((error) =>
-      console.error("[friday] resume failed:", error),
-    );
+    const runId = resolved.runId;
+    background("resume", () => resumeRun(runId, decision, body.comment));
   }
 
   return NextResponse.json({

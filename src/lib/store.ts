@@ -57,6 +57,7 @@ import type {
   ActivityEvent,
   Agent,
   Approval,
+  BoardMeeting,
   ChatMessage,
   CollaborationFlow,
   DepartmentId,
@@ -99,6 +100,8 @@ export interface CompanyState {
   apiUsage: { inputTokens: number; outputTokens: number; runs: number };
   /** note articles the AI wrote, waiting for the CEO to post them. */
   noteDrafts: NoteDraftSummary[];
+  /** Board meetings actually held, newest first. Empty until one runs. */
+  meetings: BoardMeeting[];
   /** Surfaced in the UI when a live call fails, so setup problems are visible. */
   liveError?: string;
   /** Banner the CEO dismissed; suppressed until a newer one arrives. */
@@ -136,7 +139,6 @@ export interface CompanyState {
   ) => void;
   archiveReport: (id: string) => void;
   requestAgentApproval: (input: ApprovalRequestInput) => Approval;
-  runScheduledReports: () => void;
   /** Marks a note draft posted or set aside, and tells the server. */
   setNoteDraft: (id: string, status: NoteDraftSummary["status"], noteUrl?: string) => void;
   /** Asks the server to run anything due. Safe to call as often as we like. */
@@ -242,6 +244,7 @@ export const useCompany = create<CompanyState>((set, get) => ({
   reports: SEED_REPORTS,
   schedule: DEFAULT_SCHEDULE,
   noteDrafts: [],
+  meetings: [],
 
   rightPanelOpen: true,
   panelTab: "activity",
@@ -298,6 +301,7 @@ export const useCompany = create<CompanyState>((set, get) => ({
       runs: payload.runs ?? s.runs,
       apiUsage: payload.usage ?? s.apiUsage,
       noteDrafts: payload.noteDrafts ?? s.noteDrafts,
+      meetings: payload.meetings ?? s.meetings,
       agents: payload.agents
         ? s.agents.map((agent) => {
             const live = payload.agents![agent.id];
@@ -746,23 +750,6 @@ export const useCompany = create<CompanyState>((set, get) => ({
     }));
     persist();
     return approval;
-  },
-
-  /** Fires the scheduled report jobs when the company clock crosses their time. */
-  runScheduledReports: () => {
-    const state = get();
-    const [hh, mm] = state.schedule.dailyReport.split(":").map(Number);
-
-    // Resolve the configured JST wall-clock time back to an absolute instant.
-    const jst = new Date(state.now + 9 * 3_600_000);
-    jst.setUTCHours(hh, mm, 0, 0);
-    const dueAt = jst.getTime() - 9 * 3_600_000;
-
-    if (state.now < dueAt) return;
-    if (state.lastDailyReportAt && state.lastDailyReportAt >= dueAt) return;
-
-    set({ lastDailyReportAt: state.now });
-    get().generateReport({ type: "daily" });
   },
 
   /**

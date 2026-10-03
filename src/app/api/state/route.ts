@@ -30,6 +30,7 @@ async function handleGET() {
       // Message history is intentionally omitted — it is large and internal.
       runs: state.runs.slice(0, 40).map(({ messages: _messages, ...run }) => run),
       noteDrafts: state.noteDrafts ?? [],
+      meetings: state.meetings ?? [],
     },
     { headers: { "Cache-Control": "no-store" } },
   );

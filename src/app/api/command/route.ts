@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { runAgent } from "@/server/agents/runner";
+import { background } from "@/server/runtime/background";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,9 +57,9 @@ async function handlePOST(request: Request) {
     return NextResponse.json(result);
   }
 
-  // Fire and forget: the run keeps going and writes into the company state.
-  const started = runAgent(options);
-  started.catch((error) => console.error("[friday] command run failed:", error));
+  // Kept alive past the response. Returning first and letting the promise
+  // dangle worked locally and silently dropped the run on serverless.
+  background("command", () => runAgent(options));
 
   return NextResponse.json({ status: "started", agentId: options.agentId });
 }

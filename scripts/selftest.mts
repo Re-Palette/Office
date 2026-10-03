@@ -29,9 +29,18 @@ const { __setNoteClientForTesting, markdownToNoteHtml } = await import(
   "../src/server/integrations/note"
 );
 const { companyToolsFor } = await import("../src/server/agents/tools");
-const { AGENTS } = await import("../src/lib/company/agents");
+const { AGENTS, AGENTS_BY_ID, EXECUTIVE_IDS } = await import("../src/lib/company/agents");
 const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
-const { runDailyNoteDraft } = await import("../src/server/scheduler");
+const {
+  JOBS,
+  parseBoardSection,
+  parseMinutes,
+  runDailyNoteDraft,
+  runDailyReport,
+  runDueJobs,
+  runMorningBriefing,
+  runWeeklyBoard,
+} = await import("../src/server/scheduler");
 const { readState, mutate, loadState, flushState, invalidate, storageStatus } = await import(
   "../src/server/runtime/store"
 );
@@ -227,6 +236,33 @@ const script: Record<string, Block[][]> = {
     ],
     [{ type: "text", text: "記事を公開しました。" }],
   ],
+  // The scheduled jobs run the COO alone, with no delegation: it reads the
+  // company and files a report. Keyed separately because the same role
+  // behaves differently depending on what it is handed.
+  "COO (solo)": [
+    [
+      { type: "tool_use", id: "b1", name: "log_progress", input: { message: "会社の状況を確認しています" } },
+      { type: "tool_use", id: "b2", name: "get_company_data", input: { scope: "overview" } },
+    ],
+    [
+      {
+        type: "tool_use",
+        id: "b3",
+        name: "submit_report",
+        input: {
+          title: "朝のブリーフィング — 2026-10-03",
+          type: "daily",
+          executiveSummary: "CEOの承認待ちが3件、期限が迫っているタスクが2件あります。",
+          keyMetrics: [{ label: "承認待ち", value: "3件" }],
+          findings: ["NEWTONEの出展募集が未着手", "認証基盤は80%で停滞"],
+          risks: [{ level: "medium", text: "出展確保の遅れが集客計画を止める" }],
+          decisions: [],
+          nextActions: ["出展ブランドへの初回接触を承認する"],
+        },
+      },
+    ],
+    [{ type: "text", text: "ブリーフィングを提出しました。" }],
+  ],
   "Executive Assistant": [
     [
       { type: "tool_use", id: "e1", name: "read_email", input: { query: "is:unread newer_than:7d" } },
@@ -296,11 +332,16 @@ function roleFromSystem(system: string): string {
  */
 const stub = {
   id: "stub" as const,
-  async send(request: { system: string }) {
+  async send(request: { system: string; tools: { name: string }[] }) {
     const role = roleFromSystem(request.system);
-    const turns = script[role] ?? [[{ type: "text", text: "（応答なし）" }]];
-    const index = cursor[role] ?? 0;
-    cursor[role] = index + 1;
+    // Same employee, different job: the stub picks by what it was handed,
+    // exactly as the real transport does.
+    const solo = `${role} (solo)`;
+    const key =
+      !request.tools.some((t) => t.name === "delegate") && script[solo] ? solo : role;
+    const turns = script[key] ?? [[{ type: "text", text: "（応答なし）" }]];
+    const index = cursor[key] ?? 0;
+    cursor[key] = index + 1;
     const content = turns[Math.min(index, turns.length - 1)];
     const hasToolUse = content.some((b) => b.type === "tool_use");
 
@@ -518,6 +559,98 @@ check("the job is recorded so it cannot run twice", readState().jobs.some((j) =>
 
 const repeat = await runDailyNoteDraft();
 check("a second run the same day is a no-op", repeat.status === "skipped", repeat.status);
+
+// ── The company's other recurring work ────────────────────────────────────
+//
+// The dashboard has advertised a morning briefing, a daily report and a
+// weekly board meeting since the company was built, and none of them existed.
+// These are the checks that they now actually produce something.
+console.log("\n=== Scheduled jobs ===\n");
+
+check(
+  "every advertised job exists",
+  ["morning-briefing", "note-daily-draft", "daily-report", "weekly-board"].every((id) =>
+    JOBS.some((j) => j.id === id),
+  ),
+  JOBS.map((j) => j.id).join(", "),
+);
+
+const reportsBefore = readState().reports.length;
+cursor["COO (solo)"] = 0;
+const briefing = await runMorningBriefing(true);
+check("the morning briefing runs", briefing.status === "ran", `${briefing.status}: ${briefing.detail}`);
+check("and leaves a report the CEO can open", readState().reports.length > reportsBefore);
+check("it is recorded, so it cannot run twice", readState().jobs.some((j) => j.id === "morning-briefing" && j.ok));
+check("a second call the same day declines", (await runMorningBriefing()).status === "skipped");
+
+cursor["COO (solo)"] = 0;
+const daily = await runDailyReport(true);
+check("the daily report runs", daily.status === "ran", `${daily.status}: ${daily.detail}`);
+check("and is recorded separately from the briefing", readState().jobs.some((j) => j.id === "daily-report" && j.ok));
+
+// Eight executives do not fit in one request, so the meeting is assembled
+// across several — a part-finished meeting is normal, not broken.
+for (const id of EXECUTIVE_IDS) cursor[AGENTS_BY_ID[id]?.role ?? id] = 0;
+const firstPass = await runWeeklyBoard(true);
+check("the board meeting starts", firstPass.status === "ran", `${firstPass.status}: ${firstPass.detail}`);
+
+const partial = readState().meetings?.[0];
+check("a meeting record is created", Boolean(partial), partial?.id);
+check("with only the first batch reporting", (partial?.reports.length ?? 0) > 0 && (partial?.reports.length ?? 0) < EXECUTIVE_IDS.length, `${partial?.reports.length}/${EXECUTIVE_IDS.length}`);
+check("and is not yet closed", partial?.status === "scheduled", partial?.status);
+
+// Each further ring carries it forward rather than starting again.
+let guard = 0;
+while ((readState().meetings?.[0]?.reports.length ?? 0) < EXECUTIVE_IDS.length && guard < 12) {
+  guard += 1;
+  for (const id of EXECUTIVE_IDS) cursor[AGENTS_BY_ID[id]?.role ?? id] = 0;
+  await runWeeklyBoard(true);
+}
+const finished = readState().meetings?.[0];
+check("further calls resume the same meeting, never restart it", readState().meetings?.length === 1, `${readState().meetings?.length} meeting(s)`);
+check("every executive ends up reporting exactly once", finished?.reports.length === EXECUTIVE_IDS.length, `${finished?.reports.length}/${EXECUTIVE_IDS.length}`);
+check("no executive reports twice", new Set(finished?.reports.map((r) => r.agentId)).size === EXECUTIVE_IDS.length);
+check("the meeting closes once everyone is in", finished?.status === "completed", finished?.status);
+check("with minutes attached", Boolean(finished?.summary && finished.summary !== "（要約なし）"), finished?.summary?.slice(0, 40));
+
+// The executives answer in prose; the parser has to survive the decoration a
+// model adds to a format it was given.
+const section = parseBoardSection("cto", [
+  "認証基盤が80%に到達しました",
+  "- Supabase Auth の実装が完了",
+  "- E2Eの再実行で劣化なし",
+  "- 残りは権限判定のみ",
+  "- 4点目は捨てられる",
+  "指標: 進捗=80%",
+].join("\n"));
+check("the headline is the first line", section.headline === "認証基盤が80%に到達しました");
+check("bullets lose their markers", section.points[0] === "Supabase Auth の実装が完了");
+check("at most three points are kept", section.points.length === 3, String(section.points.length));
+check("the metric is pulled out of the body", section.metric?.value === "80%", JSON.stringify(section.metric));
+check("the agent's department becomes the area", section.area === AGENTS_BY_ID["cto"]?.department);
+
+// A reply that ignores the format must still produce something usable.
+const sloppy = parseBoardSection("cmo", "今週はInstagramの保存率が伸びました。");
+check("an unformatted reply still yields a section", sloppy.headline.length > 0 && sloppy.points.length === 0);
+check("and no invented metric", sloppy.metric === undefined);
+
+const minutes = parseMinutes([
+  "全体として前進しました。認証基盤とSNSが伸びています。",
+  "決定: NEWTONEの出展募集を今週中に開始する",
+  "決定: 提携候補3社へ接触する",
+].join("\n"));
+check("the minutes separate summary from decisions", minutes.decisions.length === 2, String(minutes.decisions.length));
+check("decisions lose their prefix", minutes.decisions[0].startsWith("NEWTONE"), minutes.decisions[0]);
+check("the summary is the rest", minutes.summary.includes("前進"));
+
+// The dispatcher is what every trigger calls, so a late ring still works.
+const due = await runDueJobs();
+check("the dispatcher reports on every job", due.length === JOBS.length, `${due.length}/${JOBS.length}`);
+check(
+  "and never runs one twice in a day",
+  due.every((r) => r.status === "skipped" || r.status === "not_due"),
+  due.map((r) => `${r.id}:${r.status}`).join(" "),
+);
 
 // ── Opting in to note's own endpoints ──────────────────────────────────────
 process.env.NOTE_OUTPUT = "publish";

@@ -16,8 +16,13 @@ export default function MeetingsPage() {
   const agents = useCompany((s) => s.agents);
   const schedule = useCompany((s) => s.schedule);
 
-  const upcoming = BOARD_MEETINGS.find((m) => m.status === "scheduled");
-  const completed = BOARD_MEETINGS.filter((m) => m.status === "completed");
+  // Real meetings once the executives have held one; the seed is what the
+  // demo shows, and what fills the page before the first Sunday.
+  const live = useCompany((s) => s.meetings);
+  const source = live.length > 0 ? live : BOARD_MEETINGS;
+
+  const upcoming = source.find((m) => m.status === "scheduled");
+  const completed = source.filter((m) => m.status === "completed");
   const [selected, setSelected] = useState(completed[0]?.id);
 
   const meeting = completed.find((m) => m.id === selected) ?? completed[0];
