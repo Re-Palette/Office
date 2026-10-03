@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Database, Sparkles, Wrench } from "lucide-react";
 import { AGENTS } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import { useCompany } from "@/lib/store";
+import { saveSchedule } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import { Button, Chip, Panel, PanelHeader } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
@@ -46,11 +47,32 @@ export default function SettingsPage() {
   const toggleSimulation = useCompany((s) => s.toggleSimulation);
   const resetDecisions = useCompany((s) => s.resetDecisions);
 
+  const mode = useCompany((s) => s.mode);
   const [draft, setDraft] = useState(schedule);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  function save() {
+  // Keep the form in step with the server's value once it arrives.
+  useEffect(() => {
+    setDraft(schedule);
+  }, [schedule]);
+
+  async function save() {
+    setSaveError(null);
     useCompany.setState({ schedule: draft });
+
+    // The server is the copy the jobs read. Saving only in the browser is
+    // what made these fields decorative for as long as they have existed.
+    if (mode === "live") {
+      try {
+        const stored = await saveSchedule(draft);
+        useCompany.setState({ schedule: stored });
+      } catch (error) {
+        setSaveError((error as Error).message);
+        return;
+      }
+    }
+
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
   }
@@ -75,7 +97,7 @@ export default function SettingsPage() {
               title="Scheduled Reports"
               hint="Cron"
               action={
-                <Button variant={saved ? "success" : "primary"} size="xs" onClick={save}>
+                <Button variant={saved ? "success" : "primary"} size="xs" onClick={() => void save()}>
                   {saved ? (
                     <>
                       <Check className="h-3 w-3" strokeWidth={2.25} />
@@ -87,6 +109,17 @@ export default function SettingsPage() {
                 </Button>
               }
             />
+            {saveError && (
+              <p className="bg-danger/[0.06] px-5 py-3 text-2xs leading-relaxed text-danger">
+                {saveError}
+              </p>
+            )}
+            {mode !== "live" && (
+              <p className="px-5 py-3 text-3xs leading-relaxed text-ink-ghost">
+                デモ動作中はブラウザにのみ保存されます。APIキーを設定すると、
+                この時刻が実際の定期実行に反映されます。
+              </p>
+            )}
             <div className="divide-y divide-hairline">
               <TimeRow
                 label="Morning Briefing"

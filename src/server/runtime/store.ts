@@ -8,7 +8,16 @@ import { SEED_APPROVALS, SEED_NOTIFICATIONS, SEED_REPORT_APPROVALS } from "@/lib
 import { SEED_REPORTS } from "@/lib/company/report-seed";
 import { TASKS } from "@/lib/company/tasks";
 import { SEED_NOW } from "@/lib/time";
-import type { ActivityEvent, AgentStatus, Approval, BoardMeeting, NotificationItem, Report, Task } from "@/lib/types";
+import type {
+  ActivityEvent,
+  AgentStatus,
+  Approval,
+  BoardMeeting,
+  NotificationItem,
+  Report,
+  ScheduleConfig,
+  Task,
+} from "@/lib/types";
 import type { PendingAction } from "@/server/agents/tools";
 import type { NoteDraft } from "@/server/note-drafts";
 import type { JobRun } from "@/server/scheduler";
@@ -91,6 +100,14 @@ export interface WorkState {
   noteDrafts: NoteDraft[];
   /** Recurring jobs, keyed by the JST day they last ran for. */
   jobs: JobRun[];
+  /**
+   * When the recurring work runs, as the CEO set it.
+   *
+   * Server state rather than a constant, because Settings offers these as
+   * editable fields — and until now the jobs read a hardcoded default, so
+   * changing the morning briefing's time changed nothing at all.
+   */
+  schedule?: ScheduleConfig;
   /**
    * Board meetings the executives have actually held. Assembled across
    * several invocations — eight sections do not fit in one — so a

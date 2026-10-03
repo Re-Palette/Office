@@ -212,6 +212,10 @@ export function mergeState(theirs: WorkState, ours: WorkState): WorkState {
     },
     quota: mergeQuota(theirs.quota, ours.quota),
     meetings: mergeMeetings(theirs.meetings, ours.meetings),
+    // One value, not a list: whichever side was written later is the CEO's
+    // most recent intent. `theirs` is the copy that came back from the
+    // database, so it wins only when this instance never set one.
+    schedule: ours.schedule ?? theirs.schedule,
     updatedAt: Date.now(),
   };
 }

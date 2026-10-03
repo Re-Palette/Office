@@ -6,6 +6,7 @@ import type {
   BoardMeeting,
   NotificationItem,
   Report,
+  ScheduleConfig,
   Task,
 } from "@/lib/types";
 
@@ -86,6 +87,8 @@ export interface ServerState {
   runs?: AgentRunSummary[];
   usage?: { inputTokens: number; outputTokens: number; runs: number };
   noteDrafts?: NoteDraftSummary[];
+  /** When the recurring work runs, as stored on the server. */
+  schedule?: ScheduleConfig;
   /** Board meetings the executives have actually held. */
   meetings?: BoardMeeting[];
 }
@@ -206,6 +209,28 @@ export function submitDecision(input: {
 /** How often the dashboard pulls the company's live state. */
 export const LIVE_POLL_INTERVAL = 2500;
 
+
+/* ── Schedule ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Saves when the recurring work runs.
+ *
+ * The server is the only copy that matters — the jobs read it — so a failure
+ * here has to surface rather than leaving the browser showing a time nothing
+ * will honour.
+ */
+export async function saveSchedule(
+  schedule: ScheduleConfig,
+): Promise<ScheduleConfig> {
+  const response = await fetch("/api/schedule", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(schedule),
+  });
+  const body = (await response.json()) as { schedule?: ScheduleConfig; error?: string };
+  if (!response.ok) throw new Error(body.error ?? `保存に失敗しました (${response.status})`);
+  return body.schedule ?? schedule;
+}
 
 /* ── Setup check ──────────────────────────────────────────────────────────── */
 

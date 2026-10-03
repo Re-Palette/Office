@@ -5,7 +5,7 @@ import { mutate, read } from "@/server/runtime/store";
 import { runAgent } from "@/server/agents/runner";
 import { AGENTS_BY_ID, EXECUTIVE_IDS } from "@/lib/company/agents";
 import { DEFAULT_SCHEDULE } from "@/lib/company/reports";
-import type { MeetingReport } from "@/lib/types";
+import type { MeetingReport, ScheduleConfig } from "@/lib/types";
 
 /**
  * The company's recurring work.
@@ -61,8 +61,42 @@ export function jobHistory(): JobRun[] {
   return read((s) => [...(s.jobs ?? [])]);
 }
 
+/**
+ * The times the CEO set, or the defaults.
+ *
+ * Read per call rather than captured once: the CEO can change these from
+ * Settings between one ring of the scheduler and the next.
+ */
+export function schedule(): ScheduleConfig {
+  return read((s) => s.schedule) ?? DEFAULT_SCHEDULE;
+}
+
 /** Weekday names as the schedule config writes them. */
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * Refuses a schedule a job could not act on.
+ *
+ * A job compares the clock against these strings. An unparseable one makes
+ * the comparison NaN, which is false — so the job silently never runs again.
+ * Rejecting it is the difference between an error message and a company that
+ * quietly stops working. It lives here, beside the jobs that depend on it,
+ * rather than in the route that happens to receive it.
+ */
+export function validateSchedule(input: Partial<ScheduleConfig>): string | null {
+  for (const field of ["morningBriefing", "dailyReport", "weeklyBoard"] as const) {
+    const value = input[field];
+    if (value !== undefined && !HHMM.test(value)) {
+      return `${field} は HH:MM の形式で指定してください（受け取った値: ${String(value).slice(0, 20)}）`;
+    }
+  }
+  if (input.weeklyBoardDay !== undefined && !WEEKDAYS.includes(input.weeklyBoardDay)) {
+    return `weeklyBoardDay は ${WEEKDAYS.join(" / ")} のいずれかです。`;
+  }
+  return null;
+}
 
 interface JobSpec {
   id: string;
@@ -206,7 +240,7 @@ const BRIEFING_JOB = "morning-briefing";
  */
 export function runMorningBriefing(force = false): Promise<JobResult> {
   return runJob(
-    { id: BRIEFING_JOB, at: DEFAULT_SCHEDULE.morningBriefing, label: "朝のブリーフィングを作成しました。" },
+    { id: BRIEFING_JOB, at: schedule().morningBriefing, label: "朝のブリーフィングを作成しました。" },
     () =>
       asJob(
         runAgent({
@@ -238,7 +272,7 @@ const DAILY_JOB = "daily-report";
 /** The day's result, written at the end of it. Also a dead link until now. */
 export function runDailyReport(force = false): Promise<JobResult> {
   return runJob(
-    { id: DAILY_JOB, at: DEFAULT_SCHEDULE.dailyReport, label: "日報を作成しました。" },
+    { id: DAILY_JOB, at: schedule().dailyReport, label: "日報を作成しました。" },
     () =>
       asJob(
         runAgent({
@@ -289,15 +323,16 @@ export async function runWeeklyBoard(force = false): Promise<JobResult> {
   if (!cfg.hasApiKey) {
     return { id: BOARD_JOB, status: "skipped", detail: "デモ動作のためスキップしました。" };
   }
-  if (!force && weekday !== DEFAULT_SCHEDULE.weeklyBoardDay) {
+  const sched = schedule();
+  if (!force && weekday !== sched.weeklyBoardDay) {
     return {
       id: BOARD_JOB,
       status: "not_due",
-      detail: `毎週${DEFAULT_SCHEDULE.weeklyBoardDay}に実行します。`,
+      detail: `毎週${sched.weeklyBoardDay}に実行します。`,
     };
   }
-  if (!force && minutes < parseHHMM(DEFAULT_SCHEDULE.weeklyBoard)) {
-    return { id: BOARD_JOB, status: "not_due", detail: `${DEFAULT_SCHEDULE.weeklyBoard} JST に実行します。` };
+  if (!force && minutes < parseHHMM(sched.weeklyBoard)) {
+    return { id: BOARD_JOB, status: "not_due", detail: `${sched.weeklyBoard} JST に実行します。` };
   }
 
   const id = `board-${day}`;
@@ -520,10 +555,18 @@ export async function runDueJobs(): Promise<JobResult[]> {
   return results;
 }
 
-/** Jobs the dashboard offers as "run now", in the order they are shown. */
-export const JOBS = [
-  { id: BRIEFING_JOB, label: "朝のブリーフィング", at: DEFAULT_SCHEDULE.morningBriefing, run: runMorningBriefing },
-  { id: NOTE_JOB, label: "note記事の下書き", at: "17:00", run: runDailyNoteDraft },
-  { id: DAILY_JOB, label: "日報", at: DEFAULT_SCHEDULE.dailyReport, run: runDailyReport },
-  { id: BOARD_JOB, label: "週次役員会", at: DEFAULT_SCHEDULE.weeklyBoard, run: runWeeklyBoard },
-] as const;
+/**
+ * Jobs the dashboard offers as "run now", in the order they are shown.
+ *
+ * A function rather than a constant so the times shown are the times in
+ * effect, not the ones that happened to be set when the module loaded.
+ */
+export function jobs() {
+  const sched = schedule();
+  return [
+    { id: BRIEFING_JOB, label: "朝のブリーフィング", at: sched.morningBriefing, run: runMorningBriefing },
+    { id: NOTE_JOB, label: "note記事の下書き", at: getConfig().note.dailyDraftAt, run: runDailyNoteDraft },
+    { id: DAILY_JOB, label: "日報", at: sched.dailyReport, run: runDailyReport },
+    { id: BOARD_JOB, label: "週次役員会", at: sched.weeklyBoard, run: runWeeklyBoard },
+  ];
+}

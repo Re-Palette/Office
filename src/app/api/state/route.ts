@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { readState } from "@/server/runtime/store";
+import { DEFAULT_SCHEDULE } from "@/lib/company/reports";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ async function handleGET() {
       runs: state.runs.slice(0, 40).map(({ messages: _messages, ...run }) => run),
       noteDrafts: state.noteDrafts ?? [],
       meetings: state.meetings ?? [],
+      schedule: state.schedule ?? DEFAULT_SCHEDULE,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

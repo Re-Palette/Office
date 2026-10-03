@@ -302,6 +302,7 @@ export const useCompany = create<CompanyState>((set, get) => ({
       apiUsage: payload.usage ?? s.apiUsage,
       noteDrafts: payload.noteDrafts ?? s.noteDrafts,
       meetings: payload.meetings ?? s.meetings,
+      schedule: payload.schedule ?? s.schedule,
       agents: payload.agents
         ? s.agents.map((agent) => {
             const live = payload.agents![agent.id];

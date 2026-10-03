@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
-import { JOBS, jobHistory, runDueJobs } from "@/server/scheduler";
+import { jobHistory, jobs, runDueJobs } from "@/server/scheduler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,12 +45,14 @@ async function handleGET(request: Request) {
   // which is the one the dashboard's button has always meant.
   const only = params.get("job") ?? (force ? "note-daily-draft" : null);
 
+  const available = jobs();
+
   let results;
   if (force && only) {
-    const job = JOBS.find((j) => j.id === only);
+    const job = available.find((j) => j.id === only);
     if (!job) {
       return NextResponse.json(
-        { error: "unknown job", jobs: JOBS.map((j) => j.id) },
+        { error: "unknown job", jobs: available.map((j) => j.id) },
         { status: 422 },
       );
     }
@@ -61,7 +63,7 @@ async function handleGET(request: Request) {
 
   return NextResponse.json({
     results,
-    jobs: JOBS.map((j) => ({ id: j.id, label: j.label, at: j.at })),
+    jobs: available.map((j) => ({ id: j.id, label: j.label, at: j.at })),
     history: jobHistory().slice(0, 10),
   });
 }

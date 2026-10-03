@@ -32,7 +32,7 @@ const { companyToolsFor } = await import("../src/server/agents/tools");
 const { AGENTS, AGENTS_BY_ID, EXECUTIVE_IDS } = await import("../src/lib/company/agents");
 const { listDrafts, readDraftFile } = await import("../src/server/note-drafts");
 const {
-  JOBS,
+  jobs,
   parseBoardSection,
   parseMinutes,
   runDailyNoteDraft,
@@ -40,6 +40,8 @@ const {
   runDueJobs,
   runMorningBriefing,
   runWeeklyBoard,
+  schedule: scheduleNow,
+  validateSchedule,
 } = await import("../src/server/scheduler");
 const { readState, mutate, loadState, flushState, invalidate, storageStatus } = await import(
   "../src/server/runtime/store"
@@ -633,10 +635,28 @@ console.log("\n=== Scheduled jobs ===\n");
 check(
   "every advertised job exists",
   ["morning-briefing", "note-daily-draft", "daily-report", "weekly-board"].every((id) =>
-    JOBS.some((j) => j.id === id),
+    jobs().some((j) => j.id === id),
   ),
-  JOBS.map((j) => j.id).join(", "),
+  jobs().map((j) => j.id).join(", "),
 );
+
+// The schedule is company state, so the suite sets it rather than depending
+// on the hour it happens to run at. An earlier version of these checks
+// asserted "already ran today" and got "not due yet" whenever the suite ran
+// before 08:00 JST — the same wall-clock dependency the note job already had
+// pinned away.
+mutate((st) => {
+  st.schedule = {
+    morningBriefing: "00:00",
+    dailyReport: "00:00",
+    weeklyBoard: "00:00",
+    weeklyBoardDay: new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      timeZone: "Asia/Tokyo",
+    }).format(new Date()),
+  };
+});
+check("the jobs run on the CEO's schedule, not a constant", jobs()[0].at === "00:00", jobs()[0].at);
 
 const reportsBefore = readState().reports.length;
 cursor["COO (solo)"] = 0;
@@ -708,12 +728,53 @@ check("the summary is the rest", minutes.summary.includes("前進"));
 
 // The dispatcher is what every trigger calls, so a late ring still works.
 const due = await runDueJobs();
-check("the dispatcher reports on every job", due.length === JOBS.length, `${due.length}/${JOBS.length}`);
+check("the dispatcher reports on every job", due.length === jobs().length, `${due.length}/${jobs().length}`);
 check(
   "and never runs one twice in a day",
   due.every((r) => r.status === "skipped" || r.status === "not_due"),
   due.map((r) => `${r.id}:${r.status}`).join(" "),
 );
+
+
+// ── The schedule is a real setting ─────────────────────────────────────────
+//
+// Settings has offered these times as editable fields since the company was
+// built, and the jobs read a hardcoded constant — so changing the morning
+// briefing's time changed nothing. This is the check that it now does.
+console.log("\n=== Schedule ===\n");
+
+mutate((st) => {
+  st.schedule = {
+    morningBriefing: "06:30",
+    dailyReport: "23:15",
+    weeklyBoard: "19:00",
+    weeklyBoardDay: "Friday",
+  };
+});
+
+const advertised = jobs();
+check("the briefing runs when the CEO said", advertised.find((j) => j.id === "morning-briefing")?.at === "06:30");
+check("so does the daily report", advertised.find((j) => j.id === "daily-report")?.at === "23:15");
+check("and the board meeting", advertised.find((j) => j.id === "weekly-board")?.at === "19:00");
+check("the board's day comes from the schedule too", scheduleNow().weeklyBoardDay === "Friday");
+
+// A job compares the clock against this string. An unparseable value makes
+// that comparison NaN, which is false — so the job would silently never run
+// again. That has to be refused, not stored.
+for (const bad of ["25:00", "8:00", "08:0", "morning", "", "08:60"]) {
+  const verdict = validateSchedule({ morningBriefing: bad });
+  check(`"${bad}" is refused as a time`, verdict !== null, verdict ?? "accepted");
+}
+check("a well-formed time is accepted", validateSchedule({ morningBriefing: "08:00" }) === null);
+check("midnight is accepted", validateSchedule({ dailyReport: "00:00" }) === null);
+check("a bad weekday is refused", validateSchedule({ weeklyBoardDay: "Someday" }) !== null);
+check("a real weekday is accepted", validateSchedule({ weeklyBoardDay: "Sunday" }) === null);
+
+// Back to something the rest of the suite can rely on.
+mutate((st) => {
+  st.schedule = undefined;
+});
+check("with nothing set, the defaults apply", scheduleNow().morningBriefing === "08:00", scheduleNow().morningBriefing);
 
 // ── Opting in to note's own endpoints ──────────────────────────────────────
 process.env.NOTE_OUTPUT = "publish";
