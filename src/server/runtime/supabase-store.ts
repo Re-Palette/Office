@@ -210,7 +210,34 @@ export function mergeState(theirs: WorkState, ours: WorkState): WorkState {
       outputTokens: Math.max(theirs.usage.outputTokens, ours.usage.outputTokens),
       runs: Math.max(theirs.usage.runs, ours.usage.runs),
     },
+    quota: mergeQuota(theirs.quota, ours.quota),
     updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Two instances spending the same free allowance.
+ *
+ * Taking the larger count is wrong — each instance only knows its own — but
+ * it is the safe direction: under-counting would overshoot the quota, which
+ * is the failure this whole mechanism exists to prevent. Once the API has
+ * said the day is gone, that verdict is final and survives any merge.
+ */
+function mergeQuota(
+  theirs: WorkState["quota"],
+  ours: WorkState["quota"],
+): WorkState["quota"] {
+  if (!theirs) return ours;
+  if (!ours) return theirs;
+  // Different Pacific days: the later one is the live counter.
+  if (theirs.day !== ours.day) return theirs.day > ours.day ? theirs : ours;
+
+  return {
+    day: ours.day,
+    requests: Math.max(theirs.requests, ours.requests),
+    exhausted: theirs.exhausted || ours.exhausted,
+    // Pacing is per instance and per minute; the union is the honest view.
+    recent: [...new Set([...theirs.recent, ...ours.recent])].sort((a, b) => a - b).slice(-60),
   };
 }
 

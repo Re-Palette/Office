@@ -100,6 +100,13 @@ export interface WorkState {
   jobs: JobRun[];
   /** Cumulative spend so the CEO can see what the company costs to run. */
   usage: { inputTokens: number; outputTokens: number; runs: number };
+  /**
+   * Today's request count against the free-tier allowance, keyed by the
+   * Pacific day the allowance resets on. Persisted rather than held in memory
+   * because on serverless each instance would otherwise keep its own count
+   * and the total would be however many instances happened to start.
+   */
+  quota?: import("@/lib/ai/budget").QuotaState;
   updatedAt: number;
 }
 

@@ -5,7 +5,8 @@ import { createStubProvider } from "@/server/agents/stub-transport";
 import { createAnthropicProvider } from "./anthropic";
 import { createGeminiProvider } from "./gemini";
 import { createOpenAiProvider } from "./openai";
-import type { Provider, ProviderId, SearchResult } from "./types";
+import { markExhausted, refund, reserveWithWait } from "./budget";
+import { ProviderError, type Provider, type ProviderId, type SearchResult } from "./types";
 
 /**
  * Where the model provider is chosen.
@@ -40,6 +41,42 @@ const BUILDERS: Record<Exclude<ProviderId, "stub">, (cfg: ReturnType<typeof getC
     }),
 };
 
+/**
+ * Wraps a provider in the free-tier guard.
+ *
+ * Done here rather than in each provider so there is exactly one place a
+ * request can be sent from, and so the count includes the nested search and
+ * code-execution calls — which are the easiest ones to forget, and the ones
+ * that multiply fastest.
+ *
+ * A failure that never reached the API gives its reservation back; a 429 that
+ * names the daily quota is believed and stops the rest of the day.
+ */
+function guarded(provider: Provider): Provider {
+  async function gate<T>(run: () => Promise<T>): Promise<T> {
+    const verdict = await reserveWithWait();
+    if (!verdict.ok) throw new ProviderError(verdict.reason ?? "上限に達しました。", 429, false);
+
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof ProviderError) {
+        if (error.status === 429 && /1日あたり|本日/.test(error.message)) markExhausted();
+        // A rejected request produced nothing, so it is not spent allowance.
+        else if (error.status === null) refund();
+      }
+      throw error;
+    }
+  }
+
+  return {
+    ...provider,
+    send: (request) => gate(() => provider.send(request)),
+    ...(provider.search ? { search: (q: string) => gate(() => provider.search!(q)) } : {}),
+    ...(provider.execute ? { execute: (t: string) => gate(() => provider.execute!(t)) } : {}),
+  };
+}
+
 let cached: Provider | null = null;
 let cachedKey = "";
 
@@ -52,7 +89,9 @@ export function getProvider(): Provider {
     : `${cfg.provider}:${cfg.openAiBaseUrl}:${cfg.apiKey.slice(-8)}`;
 
   if (!cached || cachedKey !== key) {
-    cached = cfg.testTransport ? createStubProvider() : BUILDERS[cfg.provider](cfg);
+    cached = cfg.testTransport
+      ? createStubProvider()
+      : guarded(BUILDERS[cfg.provider](cfg));
     cachedKey = key;
   }
   return cached;
@@ -74,7 +113,7 @@ export function getSearchProvider(): Provider {
   const key = cfg.searchKeys[cfg.searchProvider];
   if (!key) return getProvider();
 
-  return BUILDERS[cfg.searchProvider]({ ...cfg, apiKey: key });
+  return guarded(BUILDERS[cfg.searchProvider]({ ...cfg, apiKey: key }));
 }
 
 /** What the tools layer asks before offering web_search / code_execution. */

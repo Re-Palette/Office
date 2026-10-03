@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getProvider } from "@/lib/ai";
+import { quotaVerdict } from "@/lib/ai/budget";
 import {
   ProviderError,
   type Block,
@@ -245,6 +246,30 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
       usage: { inputTokens: 0, outputTokens: 0 },
       error:
         "GEMINI_API_KEY が設定されていません。Settings の手順に従ってキーを設定してください。",
+    };
+  }
+
+  // Checked before the run is opened, not when the first request is sent: a
+  // run that dies three steps in has already spent requests and produced
+  // half-finished work, which is worse than never starting.
+  const allowance = quotaVerdict();
+  if (!allowance.ok) {
+    pushActivity({
+      kind: "agent.completed",
+      agentId: options.agentId,
+      at: Date.now(),
+      message: "無料枠の上限のため実行を見送りました",
+      detail: allowance.reason?.slice(0, 140),
+      severity: "important",
+    });
+    return {
+      runId: "",
+      agentId: options.agentId,
+      status: "failed",
+      text: "",
+      steps: 0,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      error: allowance.reason,
     };
   }
 

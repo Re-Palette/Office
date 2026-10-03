@@ -96,6 +96,16 @@ export interface RuntimeConfig {
   searchModel: string;
   /** Ceiling on one turn's output. Kept modest so a run cannot run away. */
   maxOutputTokens: number;
+  /**
+   * Stay inside a free allowance: count requests per day, pace them per
+   * minute, and stop before the wall rather than at it. On by default,
+   * because the default provider is the one with a free tier.
+   */
+  freeTierGuard: boolean;
+  /** Self-imposed daily request ceiling. 0 disables it. */
+  dailyRequestBudget: number;
+  /** Self-imposed per-minute ceiling. 0 disables pacing. */
+  requestsPerMinute: number;
   /** How much reasoning budget a turn gets. */
   thinking: "off" | "low" | "medium" | "high";
   /** Hard ceiling on tool-use iterations per agent run. */
@@ -138,11 +148,13 @@ const PROVIDER_DEFAULTS: Record<
   ProviderName,
   { model: string; workerModel: string; searchModel: string }
 > = {
-  // Flash is what the free tier actually serves; Pro is paid-only. Lite is
-  // cheaper again with a higher request allowance, so it takes delegated work
-  // and the nested search calls — the two that multiply.
+  // Lite everywhere. It is the cheapest model with the largest request
+  // allowance, which is the binding constraint on a free key — and the work
+  // here is reading company data and writing Japanese prose, not reasoning
+  // from scratch. FRIDAY_MODEL raises the executives to gemini-2.5-flash for
+  // anyone who would rather spend the allowance on quality.
   gemini: {
-    model: "gemini-2.5-flash",
+    model: "gemini-2.5-flash-lite",
     workerModel: "gemini-2.5-flash-lite",
     searchModel: "gemini-2.5-flash-lite",
   },
@@ -422,11 +434,19 @@ function resolveSearchProvider(active: ProviderName): ProviderName | null {
   return null;
 }
 
+/**
+ * Reasoning depth.
+ *
+ * Low by default now: thinking tokens bill as output and count against the
+ * per-minute token allowance, so on a free key they are paid for twice — once
+ * in quota and once in the latency that brings the pacing limit closer. Low
+ * still leaves the model enough to plan a tool call.
+ */
 function thinkingLevel(): RuntimeConfig["thinking"] {
   const value = str(process.env.GEMINI_THINKING).toLowerCase();
   return value === "off" || value === "low" || value === "medium" || value === "high"
     ? value
-    : "medium";
+    : "low";
 }
 
 export function getConfig(): RuntimeConfig {
@@ -454,7 +474,15 @@ export function getConfig(): RuntimeConfig {
     anthropicExecuteTool:
       str(process.env.ANTHROPIC_EXECUTE_TOOL) || DEFAULT_ANTHROPIC_EXECUTE_TOOL,
     ...models(provider),
-    maxOutputTokens: int(process.env.GEMINI_MAX_OUTPUT_TOKENS, 8_192),
+    maxOutputTokens: int(process.env.GEMINI_MAX_OUTPUT_TOKENS, 4_096),
+    // The guard matters on a free key and is noise on a paid one, so it
+    // follows the provider unless it is asked for explicitly.
+    freeTierGuard: bool(process.env.FRIDAY_FREE_TIER, provider === "gemini"),
+    // Deliberately conservative, and deliberately not presented as the real
+    // limit: the published free-tier numbers disagree and move. The hard stop
+    // comes from the API's own 429, not from this number.
+    dailyRequestBudget: int(process.env.FRIDAY_DAILY_REQUEST_BUDGET, 200),
+    requestsPerMinute: int(process.env.FRIDAY_REQUESTS_PER_MINUTE, 8),
     thinking: thinkingLevel(),
     // Lower than they were under a paid key: on the free tier every loop step
     // is one of a small number of requests per minute, so the ceilings double
@@ -486,6 +514,8 @@ export interface PublicRuntimeStatus {
   providerLabel: string;
   /** Whether web_search / code_execution are available on this backend. */
   modelCapabilities: { search: boolean; execute: boolean };
+  /** Today's usage against the free allowance, for the dashboard. */
+  quota: import("@/lib/ai/budget").QuotaStatus;
   model: string;
   workerModel: string;
   webTools: boolean;
@@ -533,6 +563,7 @@ function providerLabel(c: RuntimeConfig): string {
 export function publicStatus(
   storage: StorageStatus,
   capabilities: { search: boolean; execute: boolean },
+  quota: import("@/lib/ai/budget").QuotaStatus,
 ): PublicRuntimeStatus {
   const c = getConfig();
   return {
@@ -540,6 +571,7 @@ export function publicStatus(
     transport: c.testTransport ? "stub" : c.provider,
     providerLabel: providerLabel(c),
     modelCapabilities: capabilities,
+    quota,
     model: c.model,
     workerModel: c.workerModel,
     webTools: c.webTools,

@@ -60,8 +60,44 @@ export function LiveAgents() {
               label="Code execution"
               value={runtime?.modelCapabilities?.execute ? "利用可" : "この接続先では不可"}
             />
-            <Cell label="Thinking" value={runtime?.model ? "有効" : "—"} />
+            <Cell
+              label="Today's requests"
+              value={
+                runtime?.quota?.enabled
+                  ? `${runtime.quota.used}${runtime.quota.budget > 0 ? ` / ${runtime.quota.budget}` : ""}`
+                  : "無制限"
+              }
+              accent={Boolean(runtime?.quota?.enabled)}
+            />
           </div>
+
+          {/* On a free key the allowance is the thing that actually stops the
+              company, so it gets a line of its own rather than a number in a
+              grid the CEO has to interpret. */}
+          {runtime?.quota?.enabled && (
+            <p
+              className={cn(
+                "px-5 py-3 text-2xs leading-relaxed",
+                runtime.quota.exhausted
+                  ? "bg-warn/[0.06] text-warn/90"
+                  : "text-ink-muted",
+              )}
+            >
+              {runtime.quota.exhausted ? (
+                <>
+                  <strong>本日の無料枠を使い切りました。</strong>
+                  {runtime.quota.resetsAt}にリセットされ、AI社員は自動で再開します。
+                </>
+              ) : (
+                <>
+                  無料枠を使い切らないよう、1日 {runtime.quota.budget} リクエストで自主的に
+                  止まります（本日 {runtime.quota.used} 件・残り {runtime.quota.remaining} 件）。
+                  上限はAPIが実際に「1日の上限に達した」と返した時点でも記録され、
+                  その日はそれ以上送りません。リセットは{runtime.quota.resetsAt}。
+                </>
+              )}
+            </p>
+          )}
 
           {/* The provider is a setting, so the screen says so rather than
               leaving someone to discover it in a file. */}

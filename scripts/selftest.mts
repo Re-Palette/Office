@@ -45,6 +45,9 @@ const { createOpenAiProvider, fromCompletion, toOpenAiMessages } = await import(
   "../src/lib/ai/openai"
 );
 const { getConfig } = await import("../src/server/runtime/config");
+const { markExhausted, pacificDay, quota, quotaVerdict, reserve } = await import(
+  "../src/lib/ai/budget"
+);
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
@@ -1305,12 +1308,13 @@ check("the title is kept", text.startsWith("記事"));
 check("script and style are stripped", !text.includes("alert") && !text.includes("color:red"));
 check("entities are decoded", text.includes("本文&続き"));
 
-// ── Changing provider later ────────────────────────────────────────────────
+// ── Staying inside a free allowance ────────────────────────────────────────
 //
-// The point of the provider seam: a different backend is a setting, not an
-// edit. Each of the three is exercised through the same interface the loop
-// uses, so "it compiles" is not the standard being met here.
-console.log("\n=== Switching provider ===\n");
+// A free key is rationed by requests, not money, and the loop spends them
+// faster than it looks: one turn is one request, a delegation is a whole
+// sub-run, and every web_search adds a nested call. These are the guards that
+// make "無料枠だけで回す" a property of the code rather than a hope.
+console.log("\n=== Free-tier guard ===\n");
 
 function envScope<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const before: Record<string, string | undefined> = {};
@@ -1330,6 +1334,151 @@ function envScope<T>(vars: Record<string, string | undefined>, fn: () => T): T {
 }
 
 const noKeys = { GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined, OPENAI_API_KEY: undefined, FRIDAY_PROVIDER: undefined, FRIDAY_MODEL: undefined, FRIDAY_WORKER_MODEL: undefined, FRIDAY_SEARCH_PROVIDER: undefined, FRIDAY_TEST_TRANSPORT: undefined };
+
+
+// Allowances reset at midnight Pacific — not JST, not UTC. Getting this wrong
+// means the counter rolls over at the wrong time and overshoots.
+check(
+  "the quota day is the Pacific day, not the local one",
+  // 2026-07-01 05:00 UTC is still 2026-06-30 in Los Angeles (UTC-7).
+  pacificDay(Date.UTC(2026, 6, 1, 5, 0)) === "2026-06-30",
+  pacificDay(Date.UTC(2026, 6, 1, 5, 0)),
+);
+check(
+  "and rolls over at Pacific midnight",
+  pacificDay(Date.UTC(2026, 6, 1, 8, 0)) === "2026-07-01",
+  pacificDay(Date.UTC(2026, 6, 1, 8, 0)),
+);
+// JST is the company's own clock for its daily jobs; these must not be the
+// same value, or one of them is using the wrong zone.
+check(
+  "the company's JST day is tracked separately",
+  pacificDay(Date.UTC(2026, 6, 1, 5, 0)) !== "2026-07-01",
+);
+
+mutate((st) => {
+  st.quota = undefined;
+});
+
+// The budget must be booked on reserve, not counted afterwards: two runs
+// starting together would otherwise both see the same remaining count.
+const budgetEnv = {
+  FRIDAY_FREE_TIER: "true",
+  FRIDAY_DAILY_REQUEST_BUDGET: "3",
+  FRIDAY_REQUESTS_PER_MINUTE: "0",
+  FRIDAY_TEST_TRANSPORT: undefined,
+  GEMINI_API_KEY: "AIza-x",
+};
+
+const verdicts = envScope(budgetEnv, () => [reserve(), reserve(), reserve(), reserve()]);
+check("requests inside the budget are allowed", verdicts.slice(0, 3).every((v) => v.ok));
+check("the one past it is refused", verdicts[3].ok === false);
+check("and says why, with the numbers", verdicts[3].reason?.includes("3/3") === true, verdicts[3].reason?.slice(0, 40));
+check("the count is persisted, not held in memory", quota().requests === 3, String(quota().requests));
+
+// Asking is not spending. A run about to be refused should not pay for being
+// told so.
+const asked = envScope(budgetEnv, () => quotaVerdict());
+check("checking the allowance consumes none of it", asked.ok === false && quota().requests === 3);
+
+// A run must be refused before it opens, not three steps in with half-done
+// work and requests already spent.
+const refusedRun = await envScope(budgetEnv, () =>
+  runAgent({ agentId: "market_ai", objective: "市場を調べて", canDelegate: false, canReport: false }),
+);
+check("a run is refused before it starts", refusedRun.status === "failed", refusedRun.status);
+check("without opening a run record", refusedRun.runId === "", refusedRun.runId);
+check("and the reason names the limit", refusedRun.error?.includes("上限") === true, refusedRun.error?.slice(0, 40));
+check(
+  "the CEO sees it in the activity feed",
+  readState().activity.some((e) => e.message.includes("無料枠の上限のため")),
+);
+
+// The published free-tier numbers disagree and move, so the hard stop is not
+// guessed: the API's own 429 is believed and ends the day.
+mutate((st) => {
+  st.quota = undefined;
+});
+const beforeLearning = envScope({ ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "1000" }, () =>
+  quotaVerdict(),
+);
+check("with budget to spare, work proceeds", beforeLearning.ok === true);
+markExhausted();
+const afterLearning = envScope({ ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "1000" }, () =>
+  quotaVerdict(),
+);
+check("a daily 429 from the API stops the rest of the day", afterLearning.ok === false);
+check("even with budget left on the self-imposed limit", afterLearning.reason?.includes("使い切りました") === true, afterLearning.reason?.slice(0, 30));
+check("and says when it comes back", afterLearning.reason?.includes("太平洋時間") === true);
+
+// A new Pacific day is a new allowance, including after an API-reported cap.
+mutate((st) => {
+  if (st.quota) st.quota.day = "2000-01-01";
+});
+const nextDay = envScope(budgetEnv, () => quotaVerdict());
+check("a new Pacific day clears the stop", nextDay.ok === true);
+
+// Per-minute pacing: waiting a few seconds beats a 429 that abandons a run.
+mutate((st) => {
+  st.quota = undefined;
+});
+const paced = envScope(
+  { ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "0", FRIDAY_REQUESTS_PER_MINUTE: "2" },
+  () => [reserve(), reserve(), reserve()],
+);
+check("requests within the per-minute rate pass", paced[0].ok && paced[1].ok);
+check("the next one is held rather than refused outright", paced[2].ok === false && typeof paced[2].waitMs === "number");
+check("and the wait is under a minute", (paced[2].waitMs ?? 0) <= 60_250, String(paced[2].waitMs));
+
+// The guard belongs to the free tier; a paid key should not be throttled.
+const paid = envScope(
+  { ...budgetEnv, FRIDAY_FREE_TIER: undefined, GEMINI_API_KEY: undefined, ANTHROPIC_API_KEY: "sk-ant-x" },
+  () => getConfig(),
+);
+check("a paid provider is not guarded by default", paid.freeTierGuard === false);
+const freeByDefault = envScope(
+  { ...budgetEnv, FRIDAY_FREE_TIER: undefined, ANTHROPIC_API_KEY: undefined },
+  () => getConfig(),
+);
+check("and Gemini is, without being asked", freeByDefault.freeTierGuard === true);
+
+// Two instances spending one allowance must not lose count. Erring upward is
+// the safe direction: under-counting overshoots the quota.
+const mergedQuota = mergeState(
+  { ...readState(), quota: { day: "2026-07-01", requests: 40, exhausted: false, recent: [] } },
+  { ...readState(), quota: { day: "2026-07-01", requests: 25, exhausted: true, recent: [] } },
+);
+check("concurrent counts merge upward, never down", mergedQuota.quota?.requests === 40, String(mergedQuota.quota?.requests));
+check("and an API-reported cap survives the merge", mergedQuota.quota?.exhausted === true);
+
+mutate((st) => {
+  st.quota = undefined;
+});
+
+// Lite everywhere by default: it is the cheapest model with the largest
+// request allowance, which is what actually binds on a free key.
+const lite = envScope(
+  { ...noKeys, GEMINI_API_KEY: "AIza-x" },
+  () => getConfig(),
+);
+check("the executives run on Flash-Lite by default", lite.model === "gemini-2.5-flash-lite", lite.model);
+check("so do the specialists", lite.workerModel === "gemini-2.5-flash-lite", lite.workerModel);
+check("and so do the nested search calls", lite.searchModel === "gemini-2.5-flash-lite", lite.searchModel);
+// Reasoning tokens bill as output and eat the per-minute token allowance.
+check("thinking defaults to low, not medium", lite.thinking === "low", lite.thinking);
+// Raising only the executives must stay possible.
+const raised = envScope(
+  { ...noKeys, GEMINI_API_KEY: "AIza-x", GEMINI_MODEL: "gemini-2.5-flash" },
+  () => getConfig(),
+);
+check("the executives can be raised on their own", raised.model === "gemini-2.5-flash" && raised.workerModel === "gemini-2.5-flash-lite");
+
+// ── Changing provider later ────────────────────────────────────────────────
+//
+// The point of the provider seam: a different backend is a setting, not an
+// edit. Each of the three is exercised through the same interface the loop
+// uses, so "it compiles" is not the standard being met here.
+console.log("\n=== Switching provider ===\n");
 
 // Setting a key is enough — the provider does not have to be named twice.
 const auto = envScope({ ...noKeys, GEMINI_API_KEY: "AIza-x" }, () => getConfig());

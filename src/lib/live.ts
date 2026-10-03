@@ -26,6 +26,17 @@ export interface RuntimeStatus {
   providerLabel?: string;
   /** Whether web_search / code_execution exist on this backend. */
   modelCapabilities?: { search: boolean; execute: boolean };
+  /** Today's requests against the free allowance. */
+  quota?: {
+    enabled: boolean;
+    day: string;
+    used: number;
+    budget: number;
+    /** -1 when no budget is set. */
+    remaining: number;
+    exhausted: boolean;
+    resetsAt: string;
+  };
   model: string;
   workerModel: string;
   webTools: boolean;
