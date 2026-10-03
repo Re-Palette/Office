@@ -102,8 +102,15 @@ export function AgentRuns({ limit = 8 }: { limit?: number }) {
                       </div>
                     )}
 
+                    {/* The time goes on the error itself, not just the row.
+                        A failure from before a setting was fixed reads as a
+                        current fault otherwise, and sends the CEO off to fix
+                        something that is already working. */}
                     {run.error && (
                       <p className="mt-1.5 rounded-md border border-danger/25 bg-danger/[0.06] px-2 py-1 text-3xs leading-relaxed text-danger">
+                        <span className="num mr-1.5 text-danger/70">
+                          {formatRelative(run.finishedAt ?? run.startedAt, now)}
+                        </span>
                         {run.error}
                       </p>
                     )}

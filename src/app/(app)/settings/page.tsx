@@ -10,6 +10,7 @@ import { Button, Chip, Panel, PanelHeader } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/ui/page-header";
 import { Integrations } from "@/components/settings/integrations";
 import { LiveAgents } from "@/components/settings/live-agents";
+import { Diagnostics } from "@/components/settings/diagnostics";
 
 const PHASES = [
   { id: 1, label: "UI / UX", done: true },
@@ -63,6 +64,7 @@ export default function SettingsPage() {
       />
 
       <LiveAgents />
+      <Diagnostics />
 
       <Integrations />
 

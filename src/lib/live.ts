@@ -205,3 +205,46 @@ export function submitDecision(input: {
 
 /** How often the dashboard pulls the company's live state. */
 export const LIVE_POLL_INTERVAL = 2500;
+
+
+/* ── Setup check ──────────────────────────────────────────────────────────── */
+
+export interface Diagnosis {
+  model: {
+    configured: boolean;
+    provider: string;
+    providerLabel: string;
+    chosenBy: string;
+    wants: { model: string; workerModel: string; searchModel: string };
+    capabilities: { search: boolean; execute: boolean };
+    searchProvider: string | null;
+    switchable: string[];
+    keys: Record<string, string>;
+    available: Record<string, boolean>;
+    substituted: Record<string, string>;
+    models: string[];
+    verdict: string;
+  };
+  supabase: {
+    configured: boolean;
+    host: string | null;
+    keyKind: string;
+    verdict: string;
+  };
+}
+
+/**
+ * Asks the server what it actually sees.
+ *
+ * This exists because the alternative was guessing. A hosting dashboard shows
+ * a variable as set whether or not the running build ever received it, and a
+ * failed run from an hour ago looks exactly like one from a second ago — so
+ * "the key is configured" and "the company can work" are different questions,
+ * and only the server can answer the second one. No value is ever returned,
+ * only what the server made of it.
+ */
+export async function fetchDiagnosis(): Promise<Diagnosis> {
+  const response = await fetch("/api/diagnose", { cache: "no-store" });
+  if (!response.ok) throw new Error(`診断に失敗しました (${response.status})`);
+  return (await response.json()) as Diagnosis;
+}
