@@ -12,6 +12,7 @@ import {
   type ReportContent,
   type ReportType,
 } from "@/lib/types";
+import { uid } from "@/server/runtime/uid";
 import { mutate, read } from "@/server/runtime/store";
 import { putReport } from "@/server/report-store";
 
@@ -25,8 +26,6 @@ import { putReport } from "@/server/report-store";
  * cannot drift from reality.
  */
 
-let seq = 0;
-const uid = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 const roleOf = (id: string) => AGENTS_BY_ID[id]?.role ?? id;
 

@@ -19,6 +19,7 @@ import { COMPANY_KPIS, DEPARTMENT_LOAD, REVENUE_6M, THROUGHPUT_14D } from "@/lib
 import { isActiveStatus } from "@/lib/status";
 import type { ActivityEvent, Approval, Priority, Task } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
+import { uid } from "@/server/runtime/uid";
 import { mutate, read } from "@/server/runtime/store";
 import {
   GoogleApiError,
@@ -60,8 +61,6 @@ export interface RunContext {
   reportId?: string;
 }
 
-let seq = 0;
-const uid = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 const roleOf = (id: string) => AGENTS_BY_ID[id]?.role ?? id;
 

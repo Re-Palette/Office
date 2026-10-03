@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { getConfig } from "@/server/runtime/config";
+import { uid } from "@/server/runtime/uid";
 import { mutate, read } from "@/server/runtime/store";
 
 /**
@@ -40,8 +41,6 @@ export interface NoteDraft {
   noteUrl?: string;
 }
 
-let seq = 0;
-const uid = () => `nd-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 /** JST, because the company runs on JST and so does the 17:00 job. */
 export function jstDay(at: number): string {
@@ -125,7 +124,7 @@ export function saveDraft(input: NewDraft, now = Date.now()): NoteDraft {
     }
 
     const created: NoteDraft = {
-      id: uid(),
+      id: uid("nd"),
       title: input.title,
       body: input.body,
       tags: input.tags,

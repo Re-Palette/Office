@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { getReport } from "@/server/report-store";
 import { renderReportPdf } from "@/server/report-pdf";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
  * otherwise it opens inline, which is what both the new-tab link and the
  * in-dashboard preview rely on.
  */
-export async function GET(
+async function handleGET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -24,7 +25,7 @@ export async function GET(
       {
         error: "Report not found",
         detail:
-          "このレポートはサーバー側に登録されていません。ダッシュボードから再生成してください。",
+          "このIDのレポートが見つかりません。削除されたか、URLが古い可能性があります。",
       },
       { status: 404 },
     );
@@ -43,3 +44,7 @@ export async function GET(
     },
   });
 }
+
+// Wrapped so a cold instance fetches the company state before looking: the
+// instance serving this PDF is rarely the one that wrote the report.
+export const GET = stateful(handleGET);

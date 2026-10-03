@@ -14,6 +14,7 @@ import { DEPARTMENTS } from "@/lib/company/departments";
 import { companyBrief } from "@/lib/company/identity";
 import type { AgentStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
+import { uid } from "@/server/runtime/uid";
 import { mutate, read, type AgentRun } from "@/server/runtime/store";
 import { googleReady } from "@/server/integrations/google";
 import {
@@ -85,8 +86,6 @@ export interface RunResult {
   error?: string;
 }
 
-let seq = 0;
-const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 /* ── Prompt ───────────────────────────────────────────────────────────────── */
 

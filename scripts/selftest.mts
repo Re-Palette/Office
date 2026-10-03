@@ -67,7 +67,11 @@ const { markExhausted, pacificDay, quota, quotaVerdict, reserve } = await import
   "../src/lib/ai/budget"
 );
 const { renderReportPdf } = await import("../src/server/report-pdf");
-const { getReport } = await import("../src/server/report-store");
+const { __clearRuntimeForTesting, getReport, putReport } = await import(
+  "../src/server/report-store"
+);
+const { processSegment, uid } = await import("../src/server/runtime/uid");
+const { SEED_REPORTS } = await import("../src/lib/company/report-seed");
 
 type Block = Record<string, unknown>;
 
@@ -559,6 +563,65 @@ check("the job is recorded so it cannot run twice", readState().jobs.some((j) =>
 
 const repeat = await runDailyNoteDraft();
 check("a second run the same day is a no-op", repeat.status === "skipped", repeat.status);
+
+// ── Opening a report's PDF from a different instance ──────────────────────
+//
+// The reported failure: every report an AI employee wrote opened as "Report
+// not found" and told the CEO to regenerate it — which produced another
+// report that also would not open. The registry was an in-memory Map, and on
+// serverless the instance asked for the PDF is almost never the one that
+// wrote the report.
+console.log("\n=== Report PDF lookup ===\n");
+
+cursor["Research Director"] = 0;
+const authored = await runAgent({
+  agentId: "research_director",
+  objective: "市場の状況をレポートにまとめてください。",
+  canDelegate: false,
+  canReport: true,
+});
+const reportId = authored.reportId ?? "";
+check("the agent's report has an id", reportId.length > 0, reportId);
+check("and is found while its own instance is warm", Boolean(getReport(reportId)));
+
+// Exactly what a second instance looks like: the Map is empty and the state
+// has to come back from the backend.
+__clearRuntimeForTesting();
+invalidate();
+await loadState();
+
+const cold = getReport(reportId);
+check("a cold instance still finds it", Boolean(cold), cold ? "found" : "not found");
+check("with its content intact, so the PDF can render", Boolean(cold?.content?.executiveSummary));
+check("and its title preserved", (cold?.title ?? "").length > 0, cold?.title);
+
+// The PDF renderer is the thing the route actually calls.
+const coldPdf = cold ? await renderReportPdf(cold) : new Uint8Array();
+check("the PDF renders from the persisted copy", coldPdf.byteLength > 1000, `${coldPdf.byteLength} bytes`);
+check("and is a real PDF", new TextDecoder().decode(coldPdf.slice(0, 5)) === "%PDF-");
+
+// Seeded reports must keep resolving, since the demo links to them.
+check("seeded reports still resolve", Boolean(getReport(SEED_REPORTS[0].id)), SEED_REPORTS[0].id);
+check("an unknown id is still not found", getReport("rep-does-not-exist") === undefined);
+
+// Re-storing a report updates it rather than adding a second copy — the CEO's
+// review decision arrives this way.
+const copiesBefore = readState().reports.filter((r) => r.id === reportId).length;
+putReport({ ...(cold as typeof SEED_REPORTS[number]), status: "APPROVED" });
+const copiesAfter = readState().reports.filter((r) => r.id === reportId);
+check(
+  "storing it again does not duplicate it",
+  copiesBefore === 1 && copiesAfter.length === 1,
+  `${copiesBefore} → ${copiesAfter.length}`,
+);
+check("and the update is what is read back", getReport(reportId)?.status === "APPROVED");
+
+// Ids are generated per instance. Two instances starting their counters at
+// zero in the same millisecond used to produce the same id, and the state
+// merge unions by id — so a collision silently fused two different records.
+const ids = new Set(Array.from({ length: 500 }, () => uid("rep")));
+check("ids are unique within a process", ids.size === 500, `${ids.size}/500`);
+check("and carry a per-process segment", uid("rep").includes(processSegment()), processSegment());
 
 // ── The company's other recurring work ────────────────────────────────────
 //

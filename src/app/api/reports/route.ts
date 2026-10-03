@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stateful } from "@/server/runtime/stateful";
 import { putReport } from "@/server/report-store";
 import type { Report } from "@/lib/types";
 
@@ -9,9 +10,9 @@ export const dynamic = "force-dynamic";
  * POST /api/reports
  *
  * The dashboard pushes reports it generates here so the PDF route can render
- * them. Phase 3 replaces this with a Supabase write.
+ * them. The write is durable, so the PDF resolves from any instance.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let report: Report;
   try {
     report = (await request.json()) as Report;
@@ -29,3 +30,5 @@ export async function POST(request: Request) {
   putReport(report);
   return NextResponse.json({ id: report.id, pdfUrl: `/reports/${report.id}/pdf` });
 }
+
+export const POST = stateful(handlePOST);
