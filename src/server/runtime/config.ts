@@ -78,6 +78,10 @@ export interface RuntimeConfig {
   searchProvider: ProviderName | null;
   /** Keys for providers other than the active one, for the above. */
   searchKeys: Record<ProviderName, string>;
+  /** Whether each provider's key is usable, blank, or absent. */
+  keyStatus: Record<ProviderName, KeyStatus>;
+  /** True when the active provider's variable exists but holds nothing. */
+  keyBlank: boolean;
   /** Any OpenAI-compatible endpoint, including a local one. */
   openAiBaseUrl: string;
   /** What to call it in the dashboard, since one file serves many services. */
@@ -338,22 +342,23 @@ function supabaseConfig(): SupabaseConfig {
 }
 
 /**
- * Which backend to use.
+ * Whether a provider's key is usable, registered-but-blank, or not there.
  *
- * Named explicitly by FRIDAY_PROVIDER, or inferred from whichever key is
- * present — so setting a key is enough and nothing has to be configured
- * twice. Gemini is tried first because it is the one with a free tier.
+ * The middle case has to be its own answer. A hosting dashboard will happily
+ * save an environment variable with an empty value, and the variable existing
+ * is a clear statement of intent even when the value is useless — so it must
+ * not read the same as the variable being absent.
  */
-function resolveProvider(): ProviderName {
-  const named = str(process.env.FRIDAY_PROVIDER).toLowerCase();
-  if (named === "gemini" || named === "anthropic" || named === "openai") return named;
-  if (named === "google") return "gemini";
-  if (named === "claude") return "anthropic";
+export type KeyStatus = "set" | "empty" | "absent";
 
-  for (const candidate of ["gemini", "anthropic", "openai"] as ProviderName[]) {
-    if (keyFor(candidate)) return candidate;
+function keyStatus(provider: ProviderName): KeyStatus {
+  let sawVariable = false;
+  for (const name of KEY_VARS[provider]) {
+    if (process.env[name] === undefined) continue;
+    sawVariable = true;
+    if (cleanSecret(process.env[name])) return "set";
   }
-  return "gemini";
+  return sawVariable ? "empty" : "absent";
 }
 
 function keyFor(provider: ProviderName): string {
@@ -362,6 +367,41 @@ function keyFor(provider: ProviderName): string {
     if (value) return value;
   }
   return "";
+}
+
+const ORDER: ProviderName[] = ["gemini", "anthropic", "openai"];
+
+/**
+ * Which backend to use.
+ *
+ * Named explicitly by FRIDAY_PROVIDER, or inferred from the keys — so setting
+ * a key is enough and nothing has to be configured twice. Gemini is tried
+ * first because it is the one with a free tier.
+ *
+ * A variable that exists claims its provider even when its value is blank,
+ * and that is the whole point. A blank GEMINI_API_KEY used to fall straight
+ * through to whichever other key was still lying around — in practice a
+ * migrated-away-from Claude key with no credit on it. The company then ran on
+ * a backend nobody had chosen and reported a billing problem for a product no
+ * longer in use, which is a long way from the real cause. Holding the claim
+ * means the failure says "that key is blank" instead of pointing elsewhere.
+ *
+ * A genuinely absent variable still falls through, which is the feature: one
+ * key is all the configuration this needs.
+ */
+function resolveProvider(): ProviderName {
+  const named = str(process.env.FRIDAY_PROVIDER).toLowerCase();
+  if (named === "gemini" || named === "anthropic" || named === "openai") return named;
+  if (named === "google") return "gemini";
+  if (named === "claude") return "anthropic";
+
+  // One pass, and a variable that merely exists is enough to claim it. A
+  // blank value is a configuration error, and quietly using a different
+  // backend instead would hide exactly the error worth reporting.
+  for (const candidate of ORDER) {
+    if (keyStatus(candidate) !== "absent") return candidate;
+  }
+  return "gemini";
 }
 
 /**
@@ -467,6 +507,12 @@ export function getConfig(): RuntimeConfig {
       anthropic: keyFor("anthropic"),
       openai: keyFor("openai"),
     },
+    keyStatus: {
+      gemini: keyStatus("gemini"),
+      anthropic: keyStatus("anthropic"),
+      openai: keyStatus("openai"),
+    },
+    keyBlank: keyStatus(provider) === "empty",
     openAiBaseUrl: str(process.env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
     openAiLabel: str(process.env.OPENAI_LABEL) || "OpenAI 互換",
     anthropicSearchTool:

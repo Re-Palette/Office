@@ -244,8 +244,11 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
       text: "",
       steps: 0,
       usage: { inputTokens: 0, outputTokens: 0 },
-      error:
-        "GEMINI_API_KEY が設定されていません。Settings の手順に従ってキーを設定してください。",
+      error: cfg.keyBlank
+        ? "GEMINI_API_KEY は登録されていますが、値が空です。" +
+          "Vercel の Settings → Environment Variables で値を入れ直し、再デプロイしてください" +
+          "（値を変えただけでは反映されません）。"
+        : "GEMINI_API_KEY が設定されていません。Settings の手順に従ってキーを設定してください。",
     };
   }
 

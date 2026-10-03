@@ -272,6 +272,12 @@ function safeHost(url: string): string {
   }
 }
 
+const LABELS: Record<"set" | "empty" | "absent", string> = {
+  set: "設定済み",
+  empty: "登録されているが値が空",
+  absent: "未設定",
+};
+
 /* ── The model provider ──────────────────────────────────────────────────── */
 
 export interface ModelDiagnosis {
@@ -288,6 +294,12 @@ export interface ModelDiagnosis {
   searchProvider: string | null;
   /** Backends a key is already present for — i.e. what can be switched to. */
   switchable: string[];
+  /**
+   * Each backend's key: usable, registered but blank, or absent. A leftover
+   * key from a previous provider shows up here, which is what explains an
+   * error naming a service the company no longer uses.
+   */
+  keys: Record<string, string>;
   /** Populated for providers that can be asked. Gemini can; the others cannot. */
   available: Record<string, boolean>;
   models: string[];
@@ -319,12 +331,28 @@ export async function diagnoseModel(): Promise<ModelDiagnosis> {
     switchable: (Object.keys(cfg.searchKeys) as (keyof typeof cfg.searchKeys)[]).filter(
       (name) => cfg.searchKeys[name],
     ),
+    keys: {
+      gemini: LABELS[cfg.keyStatus.gemini],
+      anthropic: LABELS[cfg.keyStatus.anthropic],
+      openai: LABELS[cfg.keyStatus.openai],
+    },
     available: {},
     models: [],
     verdict: "",
   };
 
   if (!cfg.apiKey) {
+    // A registered-but-blank variable is the confusing one: everything looks
+    // configured, and the only symptom is work that will not start.
+    if (cfg.keyBlank) {
+      return {
+        ...base,
+        verdict:
+          `${cfg.provider} のAPIキーは環境変数としては登録されていますが、値が空です。` +
+          "ホスティング側で値を入れ直したうえで、再デプロイしてください" +
+          "（環境変数はビルド後に反映されないため、保存だけでは効きません）。",
+      };
+    }
     return {
       ...base,
       verdict:

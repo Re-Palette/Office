@@ -1550,6 +1550,43 @@ const noSearch = envScope(
 );
 check("and is simply absent when nothing can supply it", noSearch.searchProvider === null, String(noSearch.searchProvider));
 
+// A blank key is not an absent key. This is the bug that made the company run
+// on a provider nobody chose: an empty GEMINI_API_KEY fell through to a
+// leftover Claude key with no credit on it, and the error then named a billing
+// problem for a service that was no longer in use.
+const blank = envScope(
+  { ...noKeys, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-leftover" },
+  () => getConfig(),
+);
+check("a blank key does not hand the company to another provider", blank.provider === "gemini", blank.provider);
+check("and is reported as blank, not missing", blank.keyBlank === true);
+check("so the company stays in demo mode rather than billing elsewhere", blank.mode === "demo", blank.mode);
+check("the leftover key is still visible as leftover", blank.keyStatus.anthropic === "set", blank.keyStatus.anthropic);
+
+// Whitespace is the same mistake with a different shape.
+const spaces = envScope({ ...noKeys, GEMINI_API_KEY: "   ", ANTHROPIC_API_KEY: "sk-ant-x" }, () => getConfig());
+check("whitespace counts as blank too", spaces.provider === "gemini" && spaces.keyBlank === true);
+
+// A genuinely absent variable should still fall through, which is the feature.
+const absent = envScope({ ...noKeys, ANTHROPIC_API_KEY: "sk-ant-x" }, () => getConfig());
+check("an absent key still falls through as intended", absent.provider === "anthropic", absent.provider);
+check("and is not called blank", absent.keyBlank === false);
+
+// Asking for a provider explicitly always wins, blank or not.
+const explicit = envScope(
+  { ...noKeys, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-x", FRIDAY_PROVIDER: "anthropic" },
+  () => getConfig(),
+);
+check("an explicit choice is still honoured", explicit.provider === "anthropic" && explicit.mode === "live");
+
+// The run must say the key is blank, not that it is unset — the difference is
+// the whole fix, since "unset" sends someone to create a key they already have.
+const blankRun = await envScope({ ...noKeys, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "sk-ant-x" }, () =>
+  runAgent({ agentId: "coo", objective: "状況を教えて", canDelegate: false, canReport: false }),
+);
+check("the failure says the key is blank", blankRun.error?.includes("値が空") === true, blankRun.error?.slice(0, 40));
+check("and that a redeploy is needed", blankRun.error?.includes("再デプロイ") === true);
+
 /* The three providers, each driven through the loop's own interface. */
 
 const anthropicProvider = createAnthropicProvider({
