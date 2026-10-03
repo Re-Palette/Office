@@ -1,5 +1,6 @@
 import "server-only";
 
+import { listGeminiModels } from "@/lib/ai/gemini";
 import { getConfig } from "./config";
 
 /**
@@ -268,4 +269,75 @@ function safeHost(url: string): string {
   } catch {
     return "(読めないURL)";
   }
+}
+
+/* ── Gemini ───────────────────────────────────────────────────────────────── */
+
+export interface GeminiDiagnosis {
+  configured: boolean;
+  /** Which models the run will ask for. */
+  wants: { model: string; workerModel: string; searchModel: string };
+  /** Whether each of those is actually reachable with this key. */
+  available: Record<string, boolean>;
+  /** Every model the key can call generateContent on. */
+  models: string[];
+  verdict: string;
+}
+
+/**
+ * Asks the key which models it can use.
+ *
+ * Free-tier availability moves — a model id that worked last month starts
+ * returning 404 — and the failure shows up as an agent run that dies with an
+ * API error. Rather than hard-coding a list that goes stale, this asks, and
+ * says plainly whether the three configured ids are among the answers.
+ */
+export async function diagnoseGemini(): Promise<GeminiDiagnosis> {
+  const cfg = getConfig();
+  const wants = {
+    model: cfg.model,
+    workerModel: cfg.workerModel,
+    searchModel: cfg.searchModel,
+  };
+
+  if (!cfg.apiKey) {
+    return {
+      configured: false,
+      wants,
+      available: {},
+      models: [],
+      verdict:
+        "GEMINI_API_KEY が設定されていません。aistudio.google.com/apikey で発行して設定してください。",
+    };
+  }
+
+  const { ok, models, error } = await listGeminiModels(cfg.apiKey);
+  if (!ok) {
+    return { configured: true, wants, available: {}, models: [], verdict: error ?? "確認できませんでした。" };
+  }
+
+  // A configured id may name a version alias that the list reports in full
+  // (models/gemini-2.5-flash-001), so a prefix match counts as available.
+  const has = (id: string) => models.some((m) => m === id || m.startsWith(`${id}-`));
+  const available = {
+    [wants.model]: has(wants.model),
+    [wants.workerModel]: has(wants.workerModel),
+    [wants.searchModel]: has(wants.searchModel),
+  };
+
+  const missing = Object.entries(available)
+    .filter(([, ok]) => !ok)
+    .map(([id]) => id);
+
+  return {
+    configured: true,
+    wants,
+    available,
+    models,
+    verdict:
+      missing.length === 0
+        ? `キーは有効で、設定されたモデルはすべて利用できます（${models.length}件のモデルにアクセス可能）。`
+        : `次のモデルがこのキーでは利用できません: ${missing.join(", ")}。` +
+          `models の一覧から選んで GEMINI_MODEL / GEMINI_WORKER_MODEL を設定してください。`,
+  };
 }

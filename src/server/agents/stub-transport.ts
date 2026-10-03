@@ -1,7 +1,7 @@
 import "server-only";
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
+import type { Block, ModelRequest, ModelResponse, Provider } from "@/lib/ai/types";
 
 /**
  * A scripted stand-in for the model, enabled with FRIDAY_TEST_TRANSPORT=1.
@@ -15,7 +15,7 @@ import { AGENTS_BY_ID } from "@/lib/company/agents";
  */
 
 interface Turn {
-  content: Record<string, unknown>[];
+  content: Block[];
 }
 
 let counter = 0;
@@ -100,7 +100,7 @@ function turnsFor(
               "## 本物の記事にするには",
               "",
               "- `.env.local` から `FRIDAY_TEST_TRANSPORT` を外す",
-              "- `ANTHROPIC_API_KEY` を設定する",
+              "- `GEMINI_API_KEY` を設定する",
               "- `npm run dev` を再起動する",
               "",
               "以降、Content AI が会社の実際の動きを読んで記事を書きます。",
@@ -127,9 +127,9 @@ function turnsFor(
               "これは FRIDAY_TEST_TRANSPORT による模擬レポートです。モデル呼び出し以外の経路（ツール実行・会社データの読み取り・PDF生成・承認フロー）はすべて本物です。",
             keyMetrics: [{ label: "Stub run", value: "1" }],
             findings: ["stub transport のためモデルによる分析は行われていません"],
-            risks: [{ level: "low", text: "本番では ANTHROPIC_API_KEY を設定してください。" }],
+            risks: [{ level: "low", text: "本番では GEMINI_API_KEY を設定してください。" }],
             decisions: [],
-            nextActions: ["ANTHROPIC_API_KEY を設定して実際のAI社員を動かす"],
+            nextActions: ["GEMINI_API_KEY を設定して実際のAI社員を動かす"],
           },
         },
       ],
@@ -140,7 +140,7 @@ function turnsFor(
     content: [
       {
         type: "text",
-        text: `${role} の作業が完了しました（stub transport）。実際の分析を行うには ANTHROPIC_API_KEY を設定してください。`,
+        text: `${role} の作業が完了しました（stub transport）。実際の分析を行うには GEMINI_API_KEY を設定してください。`,
       },
     ],
   });
@@ -148,47 +148,42 @@ function turnsFor(
   return turns;
 }
 
-/** Matches the small surface of the SDK that the runner actually uses. */
-export function createStubClient(): Anthropic {
+/**
+ * The scripted provider.
+ *
+ * Shaped to the same `Provider` interface as Gemini, so the loop cannot tell
+ * them apart and the self-test exercises the real code path.
+ */
+export function createStubProvider(): Provider {
   return {
-    messages: {
-      stream(params: Record<string, unknown>) {
-        const system = Array.isArray(params.system)
-          ? String((params.system[0] as { text?: string })?.text ?? "")
-          : String(params.system ?? "");
-        const role = system.match(/\[ROLE\] ([^—\n]+)/)?.[1]?.trim() ?? "COO";
+    id: "stub",
 
-        const toolNames = new Set(
-          ((params.tools ?? []) as { name?: string }[]).map((t) => t.name).filter(Boolean),
-        );
-        const canDelegate = toolNames.has("delegate");
-        const canReport = toolNames.has("submit_report");
-        const canWriteNote = toolNames.has("write_note_article");
+    async send(request: ModelRequest): Promise<ModelResponse> {
+      const role = request.system.match(/\[ROLE\] ([^—\n]+)/)?.[1]?.trim() ?? "COO";
 
-        // The turn index is derived from the conversation itself, so every run
-        // starts from the beginning of the script rather than sharing a cursor.
-        const history = (params.messages ?? []) as { role?: string }[];
-        const index = history.filter((m) => m.role === "assistant").length;
+      const toolNames = new Set(request.tools.map((t) => t.name));
+      const canDelegate = toolNames.has("delegate");
+      const canReport = toolNames.has("submit_report");
+      const canWriteNote = toolNames.has("write_note_article");
 
-        const turns = turnsFor(role, canDelegate, canReport, canWriteNote);
-        const content = turns[Math.min(index, turns.length - 1)].content;
-        const hasToolUse = content.some((b) => b.type === "tool_use");
+      // The turn index is derived from the conversation itself, so every run
+      // starts from the beginning of the script rather than sharing a cursor.
+      const index = request.messages.filter((m) => m.role === "assistant").length;
 
-        return {
-          async finalMessage() {
-            // A beat, so the dashboard visibly shows work in flight.
-            await new Promise((resolve) => setTimeout(resolve, 450));
-            return {
-              content,
-              stop_reason: hasToolUse ? "tool_use" : "end_turn",
-              stop_details: null,
-              usage: { input_tokens: 1500, output_tokens: 400 },
-            };
-          },
-        };
-      },
+      const turns = turnsFor(role, canDelegate, canReport, canWriteNote);
+      const content = turns[Math.min(index, turns.length - 1)].content;
+      const hasToolUse = content.some((b) => b.type === "tool_use");
+
+      // A beat, so the dashboard visibly shows work in flight.
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      return {
+        blocks: content,
+        stopReason: hasToolUse ? "tool_use" : "end",
+        usage: { inputTokens: 1500, outputTokens: 400, cachedTokens: 0, thoughtTokens: 0 },
+      };
     },
-  } as unknown as Anthropic;
+  };
 }
 
 export const STUB_AGENT_NAMES = Object.keys(AGENTS_BY_ID);

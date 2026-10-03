@@ -1,6 +1,13 @@
 import "server-only";
 
-import Anthropic from "@anthropic-ai/sdk";
+import { getProvider } from "@/lib/ai";
+import {
+  ProviderError,
+  type Block,
+  type Msg,
+  type Provider,
+  type ToolDef,
+} from "@/lib/ai/types";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import { companyBrief } from "@/lib/company/identity";
@@ -15,7 +22,6 @@ import {
   pushActivity,
   type RunContext,
 } from "./tools";
-import { createStubClient } from "./stub-transport";
 
 /**
  * The agent loop.
@@ -27,24 +33,20 @@ import { createStubClient } from "./stub-transport";
  * sub-agent before its result goes back into the conversation.
  */
 
-let client: Anthropic | null = null;
+/**
+ * The provider is resolved per call rather than held here, so a changed key or
+ * a switch to the scripted transport takes effect without a restart. The
+ * override exists for the self-test.
+ */
+let override: Provider | null = null;
 
-function getClient(): Anthropic {
-  if (!client) {
-    if (getConfig().testTransport) {
-      // Development only — everything but the model call is still real.
-      client = createStubClient();
-    } else {
-      // Resolves ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from the environment.
-      client = new Anthropic({ maxRetries: 2 });
-    }
-  }
-  return client;
+function model(): Provider {
+  return override ?? getProvider();
 }
 
 /** Test seam: lets the workflow be exercised without spending tokens. */
-export function __setClientForTesting(stub: Anthropic | null): void {
-  client = stub;
+export function __setClientForTesting(stub: Provider | null): void {
+  override = stub;
 }
 
 const WORK_STATUS: Record<string, AgentStatus> = {
@@ -157,32 +159,6 @@ export function buildSystem(agentId: string, canDelegate: boolean, canReport: bo
     .join("\n");
 }
 
-/** Anthropic-hosted tools, chosen from what the employee is equipped with. */
-function serverTools(agentId: string): Anthropic.ToolUnion[] {
-  const cfg = getConfig();
-  const agent = AGENTS_BY_ID[agentId];
-  if (!agent) return [];
-
-  const wantsWeb =
-    cfg.webTools && (agent.tools.includes("web_research") || agent.tools.includes("browser"));
-  const wantsCode =
-    cfg.codeExecution &&
-    (agent.tools.includes("code_execution") || agent.tools.includes("analytics"));
-
-  // Web search's dynamic filtering already runs code execution internally, so
-  // declaring both confuses the model about which environment to use.
-  if (wantsWeb) {
-    return [
-      { type: "web_search_20260209", name: "web_search", max_uses: 8 },
-      { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6 },
-    ] as unknown as Anthropic.ToolUnion[];
-  }
-  if (wantsCode) {
-    return [{ type: "code_execution_20260521", name: "code_execution" }] as unknown as Anthropic.ToolUnion[];
-  }
-  return [];
-}
-
 /* ── Run bookkeeping ──────────────────────────────────────────────────────── */
 
 function openRun(options: RunOptions): AgentRun {
@@ -268,7 +244,7 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
       steps: 0,
       usage: { inputTokens: 0, outputTokens: 0 },
       error:
-        "ANTHROPIC_API_KEY が設定されていません。Settings の手順に従ってキーを設定してください。",
+        "GEMINI_API_KEY が設定されていません。Settings の手順に従ってキーを設定してください。",
     };
   }
 
@@ -284,12 +260,15 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
     delegations: [],
   };
 
-  const tools: Anthropic.ToolUnion[] = [
-    ...companyToolsFor({ agentId: options.agentId, canDelegate, canReport }),
-    ...serverTools(options.agentId),
-  ];
+  // companyToolsFor now also returns web_search / web_fetch / code_execution,
+  // which the adapter executes. There is no separate provider-hosted list.
+  const tools: ToolDef[] = companyToolsFor({
+    agentId: options.agentId,
+    canDelegate,
+    canReport,
+  });
 
-  const messages: Anthropic.MessageParam[] = [
+  const messages: Msg[] = [
     {
       role: "user",
       content: options.context
@@ -314,8 +293,8 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
 interface LoopArgs {
   run: AgentRun;
   ctx: RunContext;
-  tools: Anthropic.ToolUnion[];
-  messages: Anthropic.MessageParam[];
+  tools: ToolDef[];
+  messages: Msg[];
   depth: number;
   canDelegate: boolean;
   canReport: boolean;
@@ -335,39 +314,30 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
     while (steps < cfg.maxSteps) {
       steps += 1;
 
-      const stream = getClient().messages.stream({
+      const response = await model().send({
         model: depth === 0 ? cfg.model : cfg.workerModel,
-        max_tokens: 32_000,
-        system: [
-          {
-            type: "text",
-            text: buildSystem(options.agentId, canDelegate, canReport),
-            cache_control: { type: "ephemeral" },
-          },
-        ],
+        system: buildSystem(options.agentId, canDelegate, canReport),
         messages,
         tools,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high" },
+        maxOutputTokens: cfg.maxOutputTokens,
+        thinking: cfg.thinking,
       });
 
-      const response = await stream.finalMessage();
+      // Reasoning tokens bill as output, so they are counted there rather
+      // than disappearing from what the dashboard reports.
+      usage.inputTokens += response.usage.inputTokens;
+      usage.outputTokens += response.usage.outputTokens + response.usage.thoughtTokens;
 
-      usage.inputTokens += response.usage.input_tokens ?? 0;
-      usage.outputTokens += response.usage.output_tokens ?? 0;
-
-      const text = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      const text = response.blocks
+        .filter((b): b is Extract<Block, { type: "text" }> => b.type === "text")
         .map((b) => b.text)
         .join("\n")
         .trim();
       if (text) finalText = text;
 
       // Safety classifiers declined the request.
-      if (response.stop_reason === "refusal") {
-        const reason = response.stop_details
-          ? `${response.stop_details.category ?? "refusal"}`
-          : "refusal";
+      if (response.stopReason === "refusal") {
+        const reason = response.refusalReason ?? "refusal";
         closeRun(run, { status: "failed", steps, usage, error: `Refused (${reason})` });
         return {
           runId: run.id,
@@ -380,14 +350,26 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
         };
       }
 
-      messages.push({ role: "assistant", content: response.content });
-
-      // A server tool paused mid-turn; hand the content back and continue.
-      if (response.stop_reason === "pause_turn") {
-        continue;
+      // An unparseable function call. Another identical turn produces the
+      // same thing, so the run stops instead of looping against the quota.
+      if (response.stopReason === "malformed_tool_call") {
+        closeRun(run, { status: "failed", steps, usage, error: "malformed tool call" });
+        return {
+          runId: run.id,
+          agentId: options.agentId,
+          status: "failed",
+          text: finalText,
+          steps,
+          usage,
+          error:
+            "モデルがツール呼び出しを正しく生成できませんでした。" +
+            "指示を短く具体的にしてから再実行してください。",
+        };
       }
 
-      if (response.stop_reason !== "tool_use") {
+      messages.push({ role: "assistant", content: response.blocks });
+
+      if (response.stopReason !== "tool_use") {
         closeRun(run, { status: "completed", steps, usage, result: finalText });
         pushActivity({
           kind: "agent.completed",
@@ -407,12 +389,12 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
         };
       }
 
-      const toolUses = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+      const toolUses = response.blocks.filter(
+        (b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use",
       );
 
       // Pass 1 — run the company tools.
-      const results: Anthropic.ToolResultBlockParam[] = [];
+      const results: Extract<Block, { type: "tool_result" }>[] = [];
       let halted = false;
 
       for (const use of toolUses) {
@@ -428,6 +410,8 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
         results.push({
           type: "tool_result",
           tool_use_id: use.id,
+          // Gemini keys a function response by name, so it travels with it.
+          name: use.name,
           content: outcome.content,
           ...(outcome.isError ? { is_error: true } : {}),
         });
@@ -541,67 +525,52 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
 }
 
 /**
- * Reads a 400 and says whose problem it is.
+ * Reads a failure and says whose problem it is.
  *
- * The API returns 400 both for a request this code built wrong and for an
- * account that cannot be billed. Those need opposite responses — one is mine
- * to fix, the other is a link to follow — so they must not read the same.
- * The raw detail is kept in every branch: it is what identified the schema
- * limit, and the next unfamiliar failure will need it too.
+ * Kept as a pure string classifier, separate from the exception handling, so
+ * it can be tested without constructing a transport error — which is how the
+ * previous provider's billing failure and schema limit were both diagnosed.
  *
- * Split out from the exception handling so it can be tested on its own; the
- * SDK's error classes are awkward to construct and are not the interesting
- * part.
+ * The provider itself already writes a message for the quota, key and model
+ * cases (see describeGeminiError); what is left here is everything that
+ * reaches the loop by another route.
  */
 export function describeBadRequest(detail: string): string {
-  if (/credit balance is too low|purchase credits|Plans & Billing/i.test(detail)) {
+  if (/quota|RESOURCE_EXHAUSTED|rate limit|429/i.test(detail)) {
     return (
-      "Anthropic APIのクレジット残高が不足しています。" +
-      "console.anthropic.com の Plans & Billing でクレジットを購入してください" +
-      "（Claudeの月額プランとは別に、API利用分のクレジットが必要です）。"
+      "Gemini APIの無料枠の上限に達しました。1分あたりの上限なら少し待てば戻ります。" +
+      "1日あたりの上限なら、太平洋時間の0時でリセットされます。自動では再試行しません。"
     );
   }
-  if (/Schema is too complex|input_schema|tools\./i.test(detail)) {
-    return `ツール定義がAPIに拒否されました（実装側の問題です）: ${detail}`;
+  if (/API_KEY_INVALID|API key not valid|UNAUTHENTICATED/i.test(detail)) {
+    return "GEMINI_API_KEY が無効です。aistudio.google.com/apikey で発行したキーを設定してください。";
   }
-  if (/model:|not_found_error|does not exist/i.test(detail)) {
+  if (/not found|NOT_FOUND|is not supported|does not exist/i.test(detail)) {
     return (
       `モデルを利用できません: ${detail}。` +
-      "FRIDAY_MODEL に利用可能なモデルIDを設定すると切り替えられます。"
+      "GEMINI_MODEL に利用可能なモデルIDを設定してください（/api/diagnose で一覧が出ます）。"
     );
   }
-  if (/max_tokens/i.test(detail)) {
+  if (/functionDeclarations|Schema|parameters|INVALID_ARGUMENT/i.test(detail)) {
+    return `ツール定義がAPIに拒否されました（実装側の問題です）: ${detail}`;
+  }
+  if (/maxOutputTokens|max_tokens/i.test(detail)) {
     return `出力トークン上限の指定が不正です（実装側の問題です）: ${detail}`;
   }
   return `リクエストが拒否されました: ${detail}`;
 }
 
 /**
- * Turns an SDK exception into something the CEO can act on.
+ * Turns an exception into something the CEO can act on.
  *
- * A 400 is the interesting one: the API uses it both for a request this code
- * built wrong and for an account that cannot be billed, and those need
- * opposite responses — one is mine to fix, the other is a link to follow.
- * Raw JSON told us the schema was too complex, so the detail is still kept
- * when it is a real request error; it just no longer leads.
+ * A ProviderError already carries a written message — the provider knows the
+ * status code and what it means there — so it is passed through rather than
+ * re-classified from its own text.
  */
 export function describeError(error: unknown): string {
-  if (error instanceof Anthropic.AuthenticationError) {
-    return "APIキーが無効です。ANTHROPIC_API_KEY を確認してください。";
-  }
-  if (error instanceof Anthropic.RateLimitError) {
-    return "レート制限に達しました。しばらく待って再実行してください。";
-  }
-  if (error instanceof Anthropic.BadRequestError) {
-    return describeBadRequest(error.message);
-  }
-  if (error instanceof Anthropic.APIConnectionError) {
-    return "Claude API へ接続できませんでした。ネットワークを確認してください。";
-  }
-  if (error instanceof Anthropic.APIError) {
-    return `Claude API エラー (${error.status}): ${error.message}`;
-  }
-  return (error as Error)?.message ?? "不明なエラー";
+  if (error instanceof ProviderError) return error.message;
+  const message = (error as Error)?.message;
+  return message ? describeBadRequest(message) : "不明なエラー";
 }
 
 /* ── Resuming after a CEO decision ────────────────────────────────────────── */
@@ -619,7 +588,7 @@ export async function resumeRun(
   const stored = read((s) => s.runs.find((r) => r.id === runId));
   if (!stored || stored.status !== "waiting_for_ceo" || !stored.messages) return null;
 
-  const messages = stored.messages as Anthropic.MessageParam[];
+  const messages = stored.messages as Msg[];
 
   // An action the employee queued behind the gate is carried out here, by the
   // server, using the input the CEO actually read — not by asking the model to
@@ -678,14 +647,11 @@ export async function resumeRun(
   return driveLoop({
     run: stored,
     ctx,
-    tools: [
-      ...companyToolsFor({
-        agentId: stored.agentId,
-        canDelegate: stored.canDelegate ?? false,
-        canReport: stored.canReport ?? true,
-      }),
-      ...serverTools(stored.agentId),
-    ],
+    tools: companyToolsFor({
+      agentId: stored.agentId,
+      canDelegate: stored.canDelegate ?? false,
+      canReport: stored.canReport ?? true,
+    }),
     messages,
     depth: stored.depth ?? 0,
     canDelegate: stored.canDelegate ?? false,

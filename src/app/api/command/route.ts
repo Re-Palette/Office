@@ -23,7 +23,7 @@ async function handlePOST(request: Request) {
       {
         error: "not_configured",
         message:
-          "ANTHROPIC_API_KEY が未設定のため、AI社員は実際には動作しません。Settings の手順を参照してください。",
+          "GEMINI_API_KEY が未設定のため、AI社員は実際には動作しません。Settings の手順を参照してください。",
       },
       { status: 503 },
     );

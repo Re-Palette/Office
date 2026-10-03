@@ -7,7 +7,7 @@ import type { DepartmentId } from "@/lib/types";
  *
  * Turns a CEO instruction into a delegation plan: the COO decomposes it,
  * the relevant departments pick it up, and the COO integrates the result
- * back into a single report for the CEO. Swapping this for a real Claude
+ * back into a single report for the CEO. Swapping this for a real model
  * call means replacing `planCommand` — nothing in the UI changes.
  */
 

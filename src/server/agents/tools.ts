@@ -1,6 +1,15 @@
 import "server-only";
 
-import type Anthropic from "@anthropic-ai/sdk";
+import type { ToolDef } from "@/lib/ai/types";
+import {
+  CODE_EXECUTION_TOOL,
+  runCodeExecution,
+  runWebFetch,
+  runWebSearch,
+  WEB_FETCH_TOOL,
+  WEB_SEARCH_TOOL,
+} from "@/lib/ai/server-tools";
+
 import { AGENTS, AGENTS_BY_ID } from "@/lib/company/agents";
 import { DEPARTMENTS } from "@/lib/company/departments";
 import { PROJECTS, PROJECTS_BY_ID } from "@/lib/company/projects";
@@ -78,12 +87,12 @@ export function pushActivity(event: Omit<ActivityEvent, "id">): ActivityEvent {
  * are what tells the model what to send.
  */
 
-const COMPANY_TOOLS: Anthropic.Tool[] = [
+const COMPANY_TOOLS: ToolDef[] = [
   {
     name: "log_progress",
     description:
       "Record what you are doing right now so the CEO can see it in the live activity feed. Call this when you start a piece of work and whenever you reach a meaningful milestone. Keep it to one short sentence in Japanese.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         message: { type: "string", description: "何をしているか（日本語・1文）" },
@@ -97,7 +106,7 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
     name: "get_company_data",
     description:
       "Read the company's current state: tasks, projects, departments, AI employees, or analytics. Use this before making any claim about the company — never guess at numbers.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         scope: {
@@ -118,7 +127,7 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
     name: "search_knowledge",
     description:
       "Search the company's Knowledge Center — brand guidelines, CEO instructions, past reports, research and company memory. Use this before researching externally; the answer is often already ours.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "検索語" },
@@ -131,7 +140,7 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
     name: "save_knowledge",
     description:
       "Write a durable finding into the company's knowledge base so other AI employees can use it later. Only save things worth remembering beyond this task.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string" },
@@ -146,7 +155,7 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
     name: "create_task",
     description:
       "Create a real task on the company board. Use this for work that must be tracked, not for your own scratch notes.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string" },
@@ -162,7 +171,7 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
   {
     name: "complete_task",
     description: "Mark a task you own as completed, recording what the outcome was.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         taskId: { type: "string" },
@@ -174,11 +183,11 @@ const COMPANY_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-const DELEGATE_TOOL: Anthropic.Tool = {
+const DELEGATE_TOOL: ToolDef = {
   name: "delegate",
   description:
     "Hand a piece of work to another AI employee and get their result back. Use this for anything outside your own remit — you are running a company, not doing every job yourself. Give them a complete, self-contained objective; they cannot see your conversation.",
-  input_schema: {
+  parameters: {
     type: "object",
     properties: {
       agentId: {
@@ -195,11 +204,11 @@ const DELEGATE_TOOL: Anthropic.Tool = {
   },
 };
 
-const APPROVAL_TOOL: Anthropic.Tool = {
+const APPROVAL_TOOL: ToolDef = {
   name: "request_ceo_approval",
   description:
     "Stop and ask the CEO. You MUST call this instead of acting whenever the work would send an external email, publish to social media, spend money, sign or commit to anything, deploy to production, or connect an external service. Your run pauses here until the CEO decides — that is correct and expected. Never work around this by doing the action yourself.",
-  input_schema: {
+  parameters: {
     type: "object",
     properties: {
       title: { type: "string", description: "承認事項（日本語・簡潔に）" },
@@ -220,11 +229,11 @@ const APPROVAL_TOOL: Anthropic.Tool = {
   },
 };
 
-const REPORT_TOOL: Anthropic.Tool = {
+const REPORT_TOOL: ToolDef = {
   name: "submit_report",
   description:
     "Submit a finished report to the CEO. It is rendered as a PDF and enters the CEO's review queue. Every claim must come from data you actually read via your tools — no invented numbers. Write all prose in Japanese.",
-  input_schema: {
+  parameters: {
     type: "object",
     properties: {
       title: { type: "string" },
@@ -295,12 +304,12 @@ const REPORT_TOOL: Anthropic.Tool = {
  * performs the action after the CEO approves — the model never holds the
  * trigger, which is why no prompt wording can talk its way past this.
  */
-const EMAIL_TOOLS: Anthropic.Tool[] = [
+const EMAIL_TOOLS: ToolDef[] = [
   {
     name: "read_email",
     description:
       "Search the company inbox and read what came in. Use Gmail search syntax: `from:`, `subject:`, `is:unread`, `newer_than:3d`, `has:attachment`. Always check the inbox before claiming nobody replied, and before writing a follow-up. Returns headers and a snippet, not full bodies.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         query: {
@@ -317,7 +326,7 @@ const EMAIL_TOOLS: Anthropic.Tool[] = [
     name: "send_email",
     description:
       "Send an email from the company address. Write the complete, final text — this is not a draft for a human to finish. Calling this does NOT send: it puts the exact message in front of the CEO and pauses your run. The CEO approves, and only then does it go out. So write it as if it will be sent verbatim, because it will be. Never call request_ceo_approval separately for an email; this tool is the request.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         to: { type: "array", items: { type: "string" }, description: "宛先アドレス" },
@@ -339,12 +348,12 @@ const EMAIL_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-const CALENDAR_TOOLS: Anthropic.Tool[] = [
+const CALENDAR_TOOLS: ToolDef[] = [
   {
     name: "list_calendar_events",
     description:
       "Read the CEO's calendar for a date range. Use this before proposing any time — never assume a slot is free.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         from: { type: "string", description: "開始日時（RFC3339。例 2026-09-22T00:00:00+09:00）" },
@@ -359,7 +368,7 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
     name: "create_calendar_event",
     description:
       "Put an event on the CEO's calendar. Check availability with list_calendar_events first. Without attendees it is a private block and is created immediately. With attendees, Google emails an invitation to those real people, so it goes to the CEO for approval first and your run pauses.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         summary: { type: "string", description: "予定のタイトル" },
@@ -388,12 +397,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
  * endpoints — a private draft first, then the CEO's approval to publish.
  * Either way the employee writes the article and stops there.
  */
-const NOTE_TOOLS: Anthropic.Tool[] = [
+const NOTE_TOOLS: ToolDef[] = [
   {
     name: "write_note_article",
     description:
       "Write a finished article for the company's note. This does NOT post it — it saves the article as a document for the CEO, who posts it. Write the complete piece, not an outline: Markdown headings, paragraphs, lists and links. Check the brand voice and what has already been published with search_knowledge first, and do not repeat an article that exists.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "記事タイトル。note で一覧に出る一行。" },
@@ -421,7 +430,7 @@ export function companyToolsFor(options: {
   agentId: string;
   canDelegate: boolean;
   canReport: boolean;
-}): Anthropic.Tool[] {
+}): ToolDef[] {
   const tools = [...COMPANY_TOOLS, APPROVAL_TOOL];
   if (options.canDelegate) tools.push(DELEGATE_TOOL);
   if (options.canReport) tools.push(REPORT_TOOL);
@@ -435,11 +444,27 @@ export function companyToolsFor(options: {
   }
   if (equipped.includes("note")) tools.push(...NOTE_TOOLS);
 
+  // Searching, reading a page and running code used to be hosted by the model
+  // provider and arrived with the request. Gemini cannot carry those tool
+  // types alongside function declarations, so they are declared here like any
+  // other function and executed by the adapter. The employees who get them,
+  // and the switches that turn them off, are unchanged.
+  const cfg = getConfig();
+  if (cfg.webTools && (equipped.includes("web_research") || equipped.includes("browser"))) {
+    tools.push(WEB_SEARCH_TOOL, WEB_FETCH_TOOL);
+  }
+  if (cfg.codeExecution && (equipped.includes("code_execution") || equipped.includes("analytics"))) {
+    tools.push(CODE_EXECUTION_TOOL);
+  }
+
   return tools;
 }
 
 export const COMPANY_TOOL_NAMES = new Set([
   ...COMPANY_TOOLS.map((t) => t.name),
+  WEB_SEARCH_TOOL.name,
+  WEB_FETCH_TOOL.name,
+  CODE_EXECUTION_TOOL.name,
   ...EMAIL_TOOLS.map((t) => t.name),
   ...CALENDAR_TOOLS.map((t) => t.name),
   ...NOTE_TOOLS.map((t) => t.name),
@@ -590,6 +615,45 @@ export async function executeCompanyTool(
 
       case "get_company_data":
         return { content: companyData(String(input.scope), input.filter ? String(input.filter) : undefined) };
+
+      // ── The three that used to run on the provider's servers ───────────
+      case "web_search": {
+        const query = String(input.query ?? "").trim();
+        pushActivity({
+          kind: "agent.tool_called",
+          agentId: ctx.agentId,
+          at: now,
+          message: "Webを検索",
+          detail: query.slice(0, 120),
+        });
+        const cfg = getConfig();
+        return runWebSearch({ apiKey: cfg.apiKey, model: cfg.searchModel }, query);
+      }
+
+      case "web_fetch": {
+        const url = String(input.url ?? "").trim();
+        pushActivity({
+          kind: "agent.tool_called",
+          agentId: ctx.agentId,
+          at: now,
+          message: "ページを読み取り",
+          detail: url.slice(0, 120),
+        });
+        return runWebFetch(url);
+      }
+
+      case "code_execution": {
+        const task = String(input.task ?? "").trim();
+        pushActivity({
+          kind: "agent.tool_called",
+          agentId: ctx.agentId,
+          at: now,
+          message: "計算を実行",
+          detail: task.slice(0, 120),
+        });
+        const cfg = getConfig();
+        return runCodeExecution({ apiKey: cfg.apiKey, model: cfg.searchModel }, task);
+      }
 
       case "search_knowledge": {
         const q = String(input.query ?? "").toLowerCase();

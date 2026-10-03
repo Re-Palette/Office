@@ -119,7 +119,7 @@ export async function pokeScheduler(force = false): Promise<JobOutcome[]> {
     const detail = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(
       detail.error === "not_configured"
-        ? "ANTHROPIC_API_KEY が設定されていないため実行できません。"
+        ? "GEMINI_API_KEY が設定されていないため実行できません。"
         : (detail.error ?? `定期実行に失敗しました (${response.status})`),
     );
   }

@@ -97,7 +97,7 @@ export default function NoteDraftsPage() {
           <PanelHeader title="記事を書かせるには" hint="デモ動作中" />
           <div className="space-y-3 px-5 py-4">
             <p className="text-xs leading-relaxed text-ink-muted">
-              ANTHROPIC_API_KEY が設定されていないため、Content AI は動きません。
+              GEMINI_API_KEY が設定されていないため、Content AI は動きません。
               記事の生成・保存・毎日の実行はすべてこのキーの有無で切り替わります。
             </p>
 
@@ -105,19 +105,19 @@ export default function NoteDraftsPage() {
               <ol className="space-y-2.5">
                 <SetupStep n={1}>
                   <a
-                    href="https://console.anthropic.com/settings/keys"
+                    href="https://aistudio.google.com/apikey"
                     target="_blank"
                     rel="noreferrer"
                     className="text-accent-soft hover:underline"
                   >
-                    console.anthropic.com
+                    Google AI Studio
                   </a>{" "}
                   でAPIキーを発行します。
                 </SetupStep>
                 <SetupStep n={2}>
                   Vercel の該当プロジェクト → Settings → Environment Variables に
                   <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs text-ink-muted">
-                    ANTHROPIC_API_KEY
+                    GEMINI_API_KEY
                   </code>
                   を追加し、Production にチェックを入れます。
                 </SetupStep>
@@ -130,12 +130,12 @@ export default function NoteDraftsPage() {
               <ol className="space-y-2.5">
                 <SetupStep n={1}>
                   <a
-                    href="https://console.anthropic.com/settings/keys"
+                    href="https://aistudio.google.com/apikey"
                     target="_blank"
                     rel="noreferrer"
                     className="text-accent-soft hover:underline"
                   >
-                    console.anthropic.com
+                    Google AI Studio
                   </a>{" "}
                   でAPIキーを発行します。
                 </SetupStep>
@@ -146,7 +146,7 @@ export default function NoteDraftsPage() {
                   </code>{" "}
                   に追記します。
                   <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
-{`ANTHROPIC_API_KEY=sk-ant-...`}
+{`GEMINI_API_KEY=AIza...`}
                   </pre>
                 </SetupStep>
                 <SetupStep n={3}>

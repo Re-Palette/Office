@@ -40,7 +40,7 @@ export function RuntimeBadge({ className }: { className?: string }) {
           "inline-flex items-center gap-1.5 rounded-md bg-live/10 px-2 py-0.5",
           className,
         )}
-        title={`Claude API · ${runtime?.model ?? ""}`}
+        title={`Gemini API · ${runtime?.model ?? ""}`}
       >
         <Cpu className="h-3 w-3 text-live" strokeWidth={2} />
         <span className="font-mono text-3xs uppercase tracking-[0.18em] text-live">Live</span>
@@ -55,7 +55,7 @@ export function RuntimeBadge({ className }: { className?: string }) {
         "inline-flex items-center gap-1.5 rounded-md bg-warn/10 px-2 py-0.5 transition-colors hover:bg-warn/20",
         className,
       )}
-      title="ANTHROPIC_API_KEY を設定すると、AI社員が実際に動作します"
+      title="GEMINI_API_KEY を設定すると、AI社員が実際に動作します"
     >
       <FlaskConical className="h-3 w-3 text-warn" strokeWidth={2} />
       <span className="font-mono text-3xs uppercase tracking-[0.18em] text-warn">Demo</span>

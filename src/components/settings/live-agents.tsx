@@ -22,7 +22,7 @@ export function LiveAgents() {
     <Panel className="overflow-hidden">
       <PanelHeader
         title="Live AI Employees"
-        hint={live ? "Claude API 接続済み" : "未接続 — デモ動作中"}
+        hint={live ? "Gemini API 接続済み" : "未接続 — デモ動作中"}
         action={
           stubbed ? (
             <Chip className="bg-warn/12 text-warn">STUB TRANSPORT</Chip>
@@ -40,7 +40,7 @@ export function LiveAgents() {
             <p className="bg-warn/[0.06] px-5 py-3 text-2xs leading-relaxed text-warn/90">
               FRIDAY_TEST_TRANSPORT=1 が有効です。ツール実行・会社データの更新・PDF生成・
               承認フローはすべて本物ですが、モデルの応答のみ定型のものに置き換わっています。
-              実際にAI社員を働かせるには、この環境変数を外して ANTHROPIC_API_KEY を設定してください。
+              実際にAI社員を働かせるには、この環境変数を外して GEMINI_API_KEY を設定してください。
             </p>
           )}
           <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-4">
@@ -108,7 +108,7 @@ export function LiveAgents() {
       ) : (
         <div className="space-y-4 px-5 py-4">
           <p className="text-xs leading-relaxed text-ink-muted">
-            現在はデモ動作です。AI社員の活動はシミュレーションで、Claude API
+            現在はデモ動作です。AI社員の活動はシミュレーションで、Gemini API
             は呼び出していません。APIキーを設定すると、同じ画面のまま
             <strong className="text-ink"> AI社員が実際に働き始めます</strong>。
           </p>
@@ -116,21 +116,22 @@ export function LiveAgents() {
           <ol className="space-y-3">
             <Step n={1} title="APIキーを取得する">
               <a
-                href="https://console.anthropic.com/settings/keys"
+                href="https://aistudio.google.com/apikey"
                 target="_blank"
                 rel="noreferrer"
                 className="text-accent-soft hover:underline"
               >
-                console.anthropic.com
+                Google AI Studio
               </a>{" "}
               でキーを発行します。
             </Step>
             <Step n={2} title="プロジェクト直下に .env.local を作る">
               <pre className="mt-1.5 overflow-x-auto rounded-lg border border-hairline bg-black/30 p-3 font-mono text-2xs leading-relaxed text-ink-muted">
-{`ANTHROPIC_API_KEY=sk-ant-...
+{`GEMINI_API_KEY=AIza...
 
-# 任意
-FRIDAY_MODEL=claude-opus-5
+# 任意（既定値のまま無料枠で動きます）
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_WORKER_MODEL=gemini-2.5-flash-lite
 FRIDAY_WEB_TOOLS=true
 FRIDAY_CODE_EXECUTION=true`}
               </pre>

@@ -6,7 +6,7 @@ import type { ActivityEvent, ActivityKind, Agent, AgentStatus } from "@/lib/type
  * Mock Agent System.
  *
  * Emits a believable stream of AI-employee activity so the UI behaves like a
- * live company before the Claude API is wired in. Every event it produces is
+ * live company before the model API is wired in. Every event it produces is
  * shaped exactly like a real one, so Phase 4 only has to change the source.
  */
 

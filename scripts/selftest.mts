@@ -14,7 +14,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-process.env.ANTHROPIC_API_KEY = "sk-ant-selftest";
+process.env.GEMINI_API_KEY = "AIza-selftest";
 // Pinned so the daily job is always past its hour: otherwise the scheduler
 // checks report "not_due" whenever the suite happens to run before 17:00 JST.
 process.env.NOTE_DAILY_DRAFT_AT = "00:00";
@@ -37,6 +37,9 @@ const { readState, mutate, loadState, flushState, invalidate, storageStatus } = 
 );
 const { mergeState } = await import("../src/server/runtime/supabase-store");
 const { diagnoseSupabase } = await import("../src/server/runtime/diagnose");
+const { createGeminiProvider, describeGeminiError, foldChunks, toGeminiContents, toGeminiSchema } =
+  await import("../src/lib/ai/gemini");
+const { checkFetchUrl, htmlToText } = await import("../src/lib/ai/server-tools");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
@@ -262,33 +265,33 @@ const script: Record<string, Block[][]> = {
 
 const cursor: Record<string, number> = {};
 
-function roleFromSystem(system: unknown): string {
-  const text = Array.isArray(system) ? String((system[0] as Block)?.text ?? "") : String(system ?? "");
-  const match = text.match(/\[ROLE\] ([^—\n]+)/);
+function roleFromSystem(system: string): string {
+  const match = system.match(/\[ROLE\] ([^—\n]+)/);
   return match ? match[1].trim() : "COO";
 }
 
+/**
+ * The scripted model, in the provider's own shape.
+ *
+ * It implements the same interface Gemini does, so everything between the
+ * route and the tool — the loop, the gate, delegation, resumption — is the
+ * real code under test and not a parallel path.
+ */
 const stub = {
-  messages: {
-    stream(params: Record<string, unknown>) {
-      const role = roleFromSystem(params.system);
-      const turns = script[role] ?? [[{ type: "text", text: "（応答なし）" }]];
-      const index = cursor[role] ?? 0;
-      cursor[role] = index + 1;
-      const content = turns[Math.min(index, turns.length - 1)];
-      const hasToolUse = content.some((b) => b.type === "tool_use");
+  id: "stub" as const,
+  async send(request: { system: string }) {
+    const role = roleFromSystem(request.system);
+    const turns = script[role] ?? [[{ type: "text", text: "（応答なし）" }]];
+    const index = cursor[role] ?? 0;
+    cursor[role] = index + 1;
+    const content = turns[Math.min(index, turns.length - 1)];
+    const hasToolUse = content.some((b) => b.type === "tool_use");
 
-      return {
-        async finalMessage() {
-          return {
-            content,
-            stop_reason: hasToolUse ? "tool_use" : "end_turn",
-            stop_details: null,
-            usage: { input_tokens: 1200, output_tokens: 300 },
-          };
-        },
-      };
-    },
+    return {
+      blocks: content,
+      stopReason: hasToolUse ? ("tool_use" as const) : ("end" as const),
+      usage: { inputTokens: 1200, outputTokens: 300, cachedTokens: 0, thoughtTokens: 0 },
+    };
   },
 } as never;
 
@@ -983,35 +986,319 @@ invalidate();
 
 // ── What a failed API call tells the CEO ───────────────────────────────────
 //
-// A 400 covers both a request this code built wrong and an account that
-// cannot be billed. They need opposite responses, so they must not read the
-// same. Both messages were hit for real during setup.
+// On a free-tier key the quota error is the one that will actually happen, and
+// it must not read like a bug — nor trigger a retry, which would either fail
+// again instantly or burn the next window.
 console.log("\n=== API errors ===\n");
 
-// Exactly what the SDK puts in error.message: the status and the JSON body.
-const billing = describeBadRequest(
-  '400 {"type":"error","error":{"type":"invalid_request_error","message":' +
-    '"Your credit balance is too low to access the Anthropic API. ' +
-    'Please go to Plans & Billing to upgrade or purchase credits."}}',
+const perMinute = describeGeminiError(
+  429,
+  '{"error":{"code":429,"message":"Quota exceeded for quota metric \'Generate requests per minute\'","status":"RESOURCE_EXHAUSTED"}}',
 );
-check("a billing failure says so, not 400", billing.includes("クレジット残高"), billing.slice(0, 32));
-check("and points at where to fix it", billing.includes("Plans & Billing"));
-check("without dumping JSON at the CEO", !billing.includes("invalid_request_error"));
+check("a rate limit says to wait, not that it broke", perMinute.message.includes("レート制限"), perMinute.message.slice(0, 30));
+check("and is never retried automatically", perMinute.retryable === false);
 
-const schema = describeBadRequest(
-  '400 {"type":"error","error":{"type":"invalid_request_error","message":"Schema is too complex."}}',
+const perDay = describeGeminiError(
+  429,
+  '{"error":{"code":429,"message":"You exceeded your current quota: requests per day","status":"RESOURCE_EXHAUSTED"}}',
+);
+check("a daily cap is told apart from a per-minute one", perDay.message.includes("1日あたり"), perDay.message.slice(0, 30));
+check("and says when it comes back", perDay.message.includes("太平洋時間"));
+check("and is also never retried", perDay.retryable === false);
+
+const rejectedKey = describeGeminiError(400, '{"error":{"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}');
+check("an invalid key names the variable", rejectedKey.message.includes("GEMINI_API_KEY"), rejectedKey.message.slice(0, 30));
+check("and where to get one", rejectedKey.message.includes("aistudio.google.com"));
+
+const missingModel = describeGeminiError(404, '{"error":{"message":"models/gemini-9-ultra is not found"}}');
+check("an unavailable model names the way out", missingModel.message.includes("GEMINI_MODEL"), missingModel.message.slice(0, 40));
+
+const transient = describeGeminiError(503, "The model is overloaded.");
+check("a transient fault is the only retryable one", transient.retryable === true);
+
+// A 5xx is worth one more attempt; everything else is not.
+check("a 400 is not retried", describeGeminiError(400, "bad").retryable === false);
+check("a 403 is not retried", describeGeminiError(403, "denied").retryable === false);
+
+// Anything reaching the loop by another route still gets classified.
+const viaLoop = describeBadRequest('{"error":{"status":"RESOURCE_EXHAUSTED","message":"quota"}}');
+check("the loop classifies a quota error too", viaLoop.includes("無料枠"), viaLoop.slice(0, 24));
+const unknown = describeBadRequest("something unforeseen");
+check("anything else keeps its detail", unknown.includes("something unforeseen"), unknown.slice(0, 40));
+
+// ── Talking to Gemini: the two shape differences that bite ─────────────────
+//
+// Both were taken from the published discovery document rather than memory,
+// and both fail silently-ish if got wrong: a lowercase type is rejected, and
+// a dropped thought signature makes the *next* turn fail.
+console.log("\n=== Gemini wire format ===\n");
+
+const converted = toGeminiSchema({
+  type: "object",
+  properties: {
+    scope: { type: "string", enum: ["tasks", "projects"] },
+    depth: { type: "integer", description: "how deep" },
+    items: { type: "array", items: { type: "string" } },
+  },
+  required: ["scope"],
+  additionalProperties: false,
+}) as Record<string, Record<string, Record<string, unknown>>>;
+
+check("types are uppercased for Gemini's enum", converted.type === "OBJECT");
+check("nested property types too", converted.properties.scope.type === "STRING");
+check("and array item types", (converted.properties.items.items as Record<string, unknown>).type === "STRING");
+check("enums survive", Array.isArray(converted.properties.scope.enum));
+check("descriptions survive", converted.properties.depth.description === "how deep");
+check("required survives", Array.isArray(converted.required));
+// Gemini's Schema has no such field and rejects unknown ones.
+check("additionalProperties is dropped, not sent", !("additionalProperties" in converted));
+
+// Every real tool must convert without emitting a key Gemini would refuse.
+const allowed = new Set([
+  "type", "format", "title", "description", "nullable", "enum", "items",
+  "properties", "required", "minimum", "maximum", "minItems", "maxItems",
+  "minLength", "maxLength", "pattern", "default", "anyOf", "propertyOrdering",
+]);
+function keysAreLegal(schema: Record<string, unknown>): boolean {
+  for (const [key, value] of Object.entries(schema)) {
+    if (!allowed.has(key)) return false;
+    if (key === "properties") {
+      for (const v of Object.values(value as Record<string, Record<string, unknown>>)) {
+        if (!keysAreLegal(v)) return false;
+      }
+    }
+    if (key === "items" && !keysAreLegal(value as Record<string, unknown>)) return false;
+  }
+  return true;
+}
+const everyTool = AGENTS.flatMap((a) =>
+  companyToolsFor({ agentId: a.id, canDelegate: true, canReport: true }),
 );
 check(
-  "a malformed request is owned as ours",
-  schema.includes("実装側の問題") && schema.includes("Schema is too complex"),
-  schema.slice(0, 40),
+  "every tool schema converts to something Gemini accepts",
+  everyTool.every((t) => keysAreLegal(toGeminiSchema(t.parameters) as Record<string, unknown>)),
+  `${everyTool.length} tool definitions`,
 );
 
-const model = describeBadRequest("400 model: claude-nonexistent does not exist");
-check("an unavailable model names the way out", model.includes("FRIDAY_MODEL"), model.slice(0, 40));
+// A thinking model's function call carries a signature, and Gemini rejects
+// the follow-up turn if it does not come back (MISSING_THOUGHT_SIGNATURE).
+const contents = toGeminiContents([
+  { role: "user", content: "調べて" },
+  {
+    role: "assistant",
+    content: [
+      { type: "text", text: "調べます" },
+      { type: "tool_use", id: "c1", name: "web_search", input: { query: "x" }, signature: "SIG" },
+    ],
+  },
+  { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", name: "web_search", content: "結果" }] },
+]) as { role: string; parts: Record<string, Record<string, unknown>>[] }[];
 
-const other = describeBadRequest("400 something unforeseen");
-check("anything else keeps its detail", other.includes("something unforeseen"), other.slice(0, 40));
+check("the assistant turn is relabelled 'model'", contents[1].role === "model");
+check("a thought signature is echoed back", contents[1].parts[1].thoughtSignature === "SIG");
+check("a tool result becomes a functionResponse", Boolean(contents[2].parts[0].functionResponse));
+check("keyed by function name, as Gemini requires", contents[2].parts[0].functionResponse.name === "web_search");
+
+// A transcript persisted before this migration has no `name` on its results.
+// Those runs must still resume, so the name is recovered from the call.
+const legacy = toGeminiContents([
+  { role: "assistant", content: [{ type: "tool_use", id: "old1", name: "log_progress", input: {} }] },
+  { role: "user", content: [{ type: "tool_result", tool_use_id: "old1", content: "ok" }] },
+]) as { parts: Record<string, Record<string, unknown>>[] }[];
+check(
+  "a pre-migration transcript still resolves its tool names",
+  legacy[1].parts[0].functionResponse.name === "log_progress",
+);
+
+// Streaming: text arrives in pieces, a call arrives whole, and reasoning
+// parts must be dropped rather than fed back as content.
+const folded = foldChunks([
+  { candidates: [{ content: { parts: [{ text: "前半" }] } }] },
+  { candidates: [{ content: { parts: [{ text: "後半" }, { text: "内心", thought: true }] } }] },
+  {
+    candidates: [
+      {
+        content: { parts: [{ functionCall: { name: "log_progress", args: { message: "m" } } }] },
+        finishReason: "STOP",
+      },
+    ],
+    usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, thoughtsTokenCount: 7 },
+  },
+]);
+check("streamed text is reassembled in order", folded.blocks[0].type === "text" && folded.blocks[0].text === "前半後半");
+check("the model's reasoning is not fed back as content", !JSON.stringify(folded.blocks).includes("内心"));
+check("a function call becomes a tool_use", folded.blocks[1]?.type === "tool_use");
+check("a tool call wins over the reported finish reason", folded.stopReason === "tool_use");
+check("reasoning tokens are reported", folded.usage.thoughtTokens === 7);
+
+const refused = foldChunks([{ candidates: [{ finishReason: "SAFETY" }] }]);
+check("a safety stop reads as a refusal", refused.stopReason === "refusal");
+const malformed = foldChunks([{ candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL" }] }]);
+check("an unparseable call is its own outcome, not a retry", malformed.stopReason === "malformed_tool_call");
+
+// ── The provider, end to end over a fake socket ───────────────────────────
+//
+// Everything above tests the pieces. This drives createGeminiProvider itself
+// with a scripted fetch, so the request body is asserted as the API would see
+// it — that is the part no unit test of a helper can catch, and the part that
+// fails as a 400 with a real key.
+console.log("\n=== Gemini provider round trip ===\n");
+
+let sentUrl = "";
+let sentBody: Record<string, never> = {} as never;
+let sentHeaders: Record<string, string> = {};
+
+function sse(events: unknown[]): Response {
+  const text = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+  return new Response(text, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+
+const fakeFetch = (async (url: string, init: RequestInit) => {
+  sentUrl = String(url);
+  sentHeaders = init.headers as Record<string, string>;
+  sentBody = JSON.parse(String(init.body)) as never;
+  return sse([
+    { candidates: [{ content: { parts: [{ text: "確認します。" }] } }] },
+    {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: { name: "log_progress", args: { message: "開始しました" } },
+                thoughtSignature: "SIG-1",
+              },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: { promptTokenCount: 2100, candidatesTokenCount: 40, thoughtsTokenCount: 120 },
+    },
+  ]);
+}) as unknown as typeof fetch;
+
+const provider = createGeminiProvider({ apiKey: "AIza-test", fetchImpl: fakeFetch });
+const turn = await provider.send({
+  model: "gemini-2.5-flash",
+  system: "[ROLE] COO — テスト",
+  messages: [{ role: "user", content: "状況を教えて" }],
+  tools: companyToolsFor({ agentId: "coo", canDelegate: true, canReport: true }),
+  maxOutputTokens: 4096,
+  thinking: "medium",
+});
+
+const body = sentBody as unknown as {
+  contents: { role: string; parts: { text?: string }[] }[];
+  systemInstruction?: { parts: { text: string }[] };
+  tools?: { functionDeclarations: { name: string; parameters: Record<string, unknown> }[] }[];
+  toolConfig?: { functionCallingConfig: { mode: string } };
+  generationConfig: { maxOutputTokens: number; thinkingConfig: { thinkingBudget: number } };
+};
+
+check("it streams rather than buffering one response", sentUrl.includes(":streamGenerateContent"));
+check("as server-sent events", sentUrl.includes("alt=sse"));
+check("the model id is in the path, where Gemini wants it", sentUrl.includes("/models/gemini-2.5-flash:"));
+// A key on the query string lands in access logs and proxy caches.
+check("the key travels as a header, not in the URL", !sentUrl.includes("AIza-test"));
+check("and is sent as x-goog-api-key", sentHeaders["x-goog-api-key"] === "AIza-test");
+
+check("the system prompt becomes systemInstruction", body.systemInstruction?.parts[0].text?.includes("[ROLE] COO"));
+check("the user turn is carried as contents", body.contents[0].parts[0].text === "状況を教えて");
+check("tools are sent as functionDeclarations", (body.tools?.[0].functionDeclarations.length ?? 0) > 5);
+check("function calling is left to the model", body.toolConfig?.functionCallingConfig.mode === "AUTO");
+check("the output ceiling is passed through", body.generationConfig.maxOutputTokens === 4096);
+check("thinking becomes a finite budget, never unlimited", body.generationConfig.thinkingConfig.thinkingBudget === 4096);
+
+// The eleven company tools must survive the conversion with their names.
+const names = new Set(body.tools?.[0].functionDeclarations.map((d) => d.name));
+check("the approval gate is still offered to the model", names.has("request_ceo_approval"));
+check("delegation is still offered", names.has("delegate"));
+// The adapter's tools are handed out on exactly the equipment the registry
+// records, which is the same gate the provider-hosted versions used. The COO
+// has analytics but not web_research, so it gets one and not the other.
+check("the COO gets compute, which its registry entry equips it for", names.has("code_execution"));
+check("and not web search, which it is not equipped for", !names.has("web_search"));
+
+const researchTools = new Set(
+  companyToolsFor({ agentId: "market_ai", canDelegate: false, canReport: true }).map((t) => t.name),
+);
+check("a researcher gets web search as an ordinary function", researchTools.has("web_search"));
+check("and page reading with it", researchTools.has("web_fetch"));
+
+check("streamed text is returned", turn.blocks[0].type === "text");
+check("the function call is returned as a tool_use", turn.blocks[1]?.type === "tool_use");
+check(
+  "its thought signature is kept for the next turn",
+  turn.blocks[1]?.type === "tool_use" && turn.blocks[1].signature === "SIG-1",
+);
+check("usage is read from the last chunk", turn.usage.inputTokens === 2100 && turn.usage.thoughtTokens === 120);
+
+// A quota failure must surface immediately, not after retrying into the wall.
+let attempts = 0;
+const quotaFetch = (async () => {
+  attempts += 1;
+  return new Response(JSON.stringify({ error: { code: 429, message: "quota exceeded: requests per day" } }), {
+    status: 429,
+  });
+}) as unknown as typeof fetch;
+
+let quotaMessage = "";
+try {
+  await createGeminiProvider({ apiKey: "k", fetchImpl: quotaFetch }).send({
+    model: "m", system: "s", messages: [{ role: "user", content: "x" }],
+    tools: [], maxOutputTokens: 100, thinking: "off",
+  });
+} catch (error) {
+  quotaMessage = (error as Error).message;
+}
+check("a quota error is raised, not swallowed", quotaMessage.includes("1日あたり"), quotaMessage.slice(0, 24));
+check("and the request was made exactly once", attempts === 1, `${attempts} attempt(s)`);
+
+// A 5xx is the one case worth a second try, and only one.
+let serverAttempts = 0;
+const flakyFetch = (async () => {
+  serverAttempts += 1;
+  if (serverAttempts === 1) return new Response("overloaded", { status: 503 });
+  return sse([{ candidates: [{ content: { parts: [{ text: "回復しました" }] } }, ] }]);
+}) as unknown as typeof fetch;
+
+const recovered = await createGeminiProvider({ apiKey: "k", fetchImpl: flakyFetch }).send({
+  model: "m", system: "s", messages: [{ role: "user", content: "x" }],
+  tools: [], maxOutputTokens: 100, thinking: "off",
+});
+check("a transient fault is retried once and recovers", serverAttempts === 2, `${serverAttempts} attempt(s)`);
+check("and the recovered turn is returned", recovered.blocks[0].type === "text");
+
+// ── web_fetch is ours now, so its safety is ours too ───────────────────────
+//
+// An agent can be handed a URL by a page it just read, so the target is
+// checked rather than trusted. The link-local range is the one that matters:
+// on a cloud host it serves the instance's credentials.
+console.log("\n=== web_fetch safety ===\n");
+
+for (const blocked of [
+  "http://localhost:3000/admin",
+  "http://127.0.0.1/",
+  "http://169.254.169.254/latest/meta-data/",
+  "http://10.0.0.5/",
+  "http://192.168.1.1/",
+  "http://172.16.0.1/",
+  "http://[::1]/",
+  "file:///etc/passwd",
+  "http://user:pw@example.com/",
+]) {
+  check(`refuses ${blocked}`, checkFetchUrl(blocked).ok === false);
+}
+check("allows an ordinary public page", checkFetchUrl("https://example.com/a").ok === true);
+
+const text = htmlToText(
+  "<html><head><title>記事</title><style>body{color:red}</style></head>" +
+    "<body><script>alert(1)</script><h1>見出し</h1><p>本文&amp;続き</p></body></html>",
+);
+check("the title is kept", text.startsWith("記事"));
+check("script and style are stripped", !text.includes("alert") && !text.includes("color:red"));
+check("entities are decoded", text.includes("本文&続き"));
 
 // ── What every employee is told about its own company ──────────────────────
 //

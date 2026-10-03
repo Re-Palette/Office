@@ -5,7 +5,7 @@ import "server-only";
  *
  * Without an API key the app stays in demo mode: the mock simulator drives the
  * dashboard exactly as before. With a key, AI employees run for real — they
- * call Claude, use tools, and write their results back into the company state.
+ * call Gemini, use tools, and write their results back into the company state.
  */
 
 export type RuntimeMode = "live" | "demo";
@@ -66,15 +66,27 @@ export interface SupabaseConfig {
 export interface RuntimeConfig {
   mode: RuntimeMode;
   hasApiKey: boolean;
+  /** The Gemini key. Server-only — this module is never imported by the UI. */
+  apiKey: string;
   /** Model the executives and report authors run on. */
   model: string;
-  /** Model specialists run on. Same as `model` unless the CEO lowers it. */
+  /** Model specialists run on. Cheaper than `model` by default. */
   workerModel: string;
+  /**
+   * Model for the nested single-purpose calls behind web_search and
+   * code_execution. One agent turn can trigger several, so this is the
+   * cheapest model by default.
+   */
+  searchModel: string;
+  /** Ceiling on one turn's output. Kept modest so a run cannot run away. */
+  maxOutputTokens: number;
+  /** How much reasoning budget a turn gets. */
+  thinking: "off" | "low" | "medium" | "high";
   /** Hard ceiling on tool-use iterations per agent run. */
   maxSteps: number;
   /** Hard ceiling on delegations the COO may make in one command. */
   maxDelegations: number;
-  /** Token ceiling handed to Claude so it paces itself. */
+  /** Token ceiling handed to the model so it paces itself. */
   taskBudgetTokens: number;
   dataDir: string;
   webTools: boolean;
@@ -89,7 +101,18 @@ export interface RuntimeConfig {
   testTransport: boolean;
 }
 
-const DEFAULT_MODEL = "claude-opus-5";
+/**
+ * Defaults chosen for the free tier.
+ *
+ * Flash is the model the Gemini API's free tier actually serves; the Pro
+ * models are paid-only. Lite is cheaper again and has a higher request
+ * allowance, so delegated work and the nested search/compute calls run on it —
+ * those are the calls that multiply. Both are overridable, because free-tier
+ * availability moves and a model id that works today can 404 next month;
+ * /api/diagnose lists what the key can actually reach.
+ */
+const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_WORKER_MODEL = "gemini-2.5-flash-lite";
 
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
@@ -247,23 +270,61 @@ function supabaseConfig(): SupabaseConfig {
   };
 }
 
+/**
+ * The model ids, resolved once.
+ *
+ * `GEMINI_*` is the name to use. `FRIDAY_MODEL` is still read because it was
+ * the name before the provider changed and is already set in deployments; a
+ * value left over from then would name a Claude model, which Gemini would
+ * 404, so those are ignored rather than passed through to a confusing error.
+ */
+function models(): { model: string; workerModel: string; searchModel: string } {
+  const legacy = (value: string | undefined): string => {
+    const v = str(value);
+    return v && !/^claude/i.test(v) ? v : "";
+  };
+
+  const model = str(process.env.GEMINI_MODEL) || legacy(process.env.FRIDAY_MODEL) || DEFAULT_MODEL;
+  const workerModel =
+    str(process.env.GEMINI_WORKER_MODEL) ||
+    legacy(process.env.FRIDAY_WORKER_MODEL) ||
+    DEFAULT_WORKER_MODEL;
+
+  return {
+    model,
+    workerModel,
+    searchModel: str(process.env.GEMINI_SEARCH_MODEL) || DEFAULT_WORKER_MODEL,
+  };
+}
+
+function thinkingLevel(): RuntimeConfig["thinking"] {
+  const value = str(process.env.GEMINI_THINKING).toLowerCase();
+  return value === "off" || value === "low" || value === "medium" || value === "high"
+    ? value
+    : "medium";
+}
+
 export function getConfig(): RuntimeConfig {
   const testTransport = bool(process.env.FRIDAY_TEST_TRANSPORT, false);
-  const hasApiKey =
-    testTransport ||
-    Boolean(process.env.ANTHROPIC_API_KEY?.trim() || process.env.ANTHROPIC_AUTH_TOKEN?.trim());
+  // GOOGLE_API_KEY is the other name Google's own tooling uses for the same
+  // value, so both are accepted and neither has to be guessed at.
+  const apiKey =
+    cleanSecret(process.env.GEMINI_API_KEY) || cleanSecret(process.env.GOOGLE_API_KEY);
+  const hasApiKey = testTransport || Boolean(apiKey);
 
   return {
     mode: hasApiKey ? "live" : "demo",
     testTransport,
     hasApiKey,
-    model: process.env.FRIDAY_MODEL?.trim() || DEFAULT_MODEL,
-    workerModel:
-      process.env.FRIDAY_WORKER_MODEL?.trim() ||
-      process.env.FRIDAY_MODEL?.trim() ||
-      DEFAULT_MODEL,
-    maxSteps: int(process.env.FRIDAY_MAX_STEPS, 24),
-    maxDelegations: int(process.env.FRIDAY_MAX_DELEGATIONS, 5),
+    apiKey,
+    ...models(),
+    maxOutputTokens: int(process.env.GEMINI_MAX_OUTPUT_TOKENS, 8_192),
+    thinking: thinkingLevel(),
+    // Lower than they were under a paid key: on the free tier every loop step
+    // is one of a small number of requests per minute, so the ceilings double
+    // as the thing that keeps one run from consuming the allowance.
+    maxSteps: int(process.env.FRIDAY_MAX_STEPS, 12),
+    maxDelegations: int(process.env.FRIDAY_MAX_DELEGATIONS, 3),
     taskBudgetTokens: int(process.env.FRIDAY_TASK_BUDGET, 60_000),
     dataDir: dataDir(),
     google: googleConfig(),
@@ -283,8 +344,8 @@ export interface StorageStatus {
 /** Safe to expose to the browser — never includes the key itself. */
 export interface PublicRuntimeStatus {
   mode: RuntimeMode;
-  /** "claude" is the real API; "stub" is the scripted development transport. */
-  transport: "claude" | "stub";
+  /** "gemini" is the real API; "stub" is the scripted development transport. */
+  transport: "gemini" | "stub";
   model: string;
   workerModel: string;
   webTools: boolean;
@@ -321,7 +382,7 @@ export function publicStatus(storage: StorageStatus): PublicRuntimeStatus {
   const c = getConfig();
   return {
     mode: c.mode,
-    transport: c.testTransport ? "stub" : "claude",
+    transport: c.testTransport ? "stub" : "gemini",
     model: c.model,
     workerModel: c.workerModel,
     webTools: c.webTools,

@@ -15,7 +15,7 @@ const PHASES = [
   { id: 1, label: "UI / UX", done: true },
   { id: 2, label: "Mock Agent System", done: true },
   { id: 2.5, label: "Reports · PDF · Approval · Notifications", done: true },
-  { id: 4, label: "Claude API — 実際のAI社員実行", done: true },
+  { id: 4, label: "Gemini API — 実際のAI社員実行", done: true },
   { id: 5, label: "Real Tools — Web / Code / 社内データ", done: true },
   { id: 3, label: "Database (Supabase)", done: false },
   { id: 6, label: "Scheduled Reports", done: false },
@@ -180,7 +180,7 @@ export default function SettingsPage() {
               <div className="min-w-0">
                 <div className="text-[12px] font-medium text-ink">Live activity simulation</div>
                 <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
-                  Claude API 接続前でも、AI社員の行動をリアルタイムに生成します。
+                  Gemini API 接続前でも、AI社員の行動をリアルタイムに生成します。
                 </p>
               </div>
               <Button
