@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ToolDef } from "@/lib/ai/types";
+import { searchCapability } from "@/lib/ai";
 import {
   CODE_EXECUTION_TOOL,
   runCodeExecution,
@@ -445,15 +446,27 @@ export function companyToolsFor(options: {
   if (equipped.includes("note")) tools.push(...NOTE_TOOLS);
 
   // Searching, reading a page and running code used to be hosted by the model
-  // provider and arrived with the request. Gemini cannot carry those tool
+  // provider and arrived with the request. No provider can carry those tool
   // types alongside function declarations, so they are declared here like any
   // other function and executed by the adapter. The employees who get them,
   // and the switches that turn them off, are unchanged.
+  //
+  // Not every backend has them, though, so the provider is asked rather than
+  // assumed: offering a tool that always fails is worse than not offering it.
+  // Reading a page needs no model, so it is available on every backend.
   const cfg = getConfig();
-  if (cfg.webTools && (equipped.includes("web_research") || equipped.includes("browser"))) {
-    tools.push(WEB_SEARCH_TOOL, WEB_FETCH_TOOL);
+  const can = searchCapability();
+  const research = equipped.includes("web_research") || equipped.includes("browser");
+
+  if (cfg.webTools && research) {
+    if (can.search) tools.push(WEB_SEARCH_TOOL);
+    tools.push(WEB_FETCH_TOOL);
   }
-  if (cfg.codeExecution && (equipped.includes("code_execution") || equipped.includes("analytics"))) {
+  if (
+    cfg.codeExecution &&
+    can.execute &&
+    (equipped.includes("code_execution") || equipped.includes("analytics"))
+  ) {
     tools.push(CODE_EXECUTION_TOOL);
   }
 
@@ -626,8 +639,7 @@ export async function executeCompanyTool(
           message: "Webを検索",
           detail: query.slice(0, 120),
         });
-        const cfg = getConfig();
-        return runWebSearch({ apiKey: cfg.apiKey, model: cfg.searchModel }, query);
+        return runWebSearch(query);
       }
 
       case "web_fetch": {
@@ -651,8 +663,7 @@ export async function executeCompanyTool(
           message: "計算を実行",
           detail: task.slice(0, 120),
         });
-        const cfg = getConfig();
-        return runCodeExecution({ apiKey: cfg.apiKey, model: cfg.searchModel }, task);
+        return runCodeExecution(task);
       }
 
       case "search_knowledge": {

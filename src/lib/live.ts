@@ -20,7 +20,12 @@ export type RuntimeMode = "live" | "demo" | "unknown";
 
 export interface RuntimeStatus {
   mode: RuntimeMode;
-  transport?: "claude" | "stub";
+  /** Which backend is answering, or "stub" for the development transport. */
+  transport?: "gemini" | "anthropic" | "openai" | "stub";
+  /** Its display name; settable for an OpenAI-compatible endpoint. */
+  providerLabel?: string;
+  /** Whether web_search / code_execution exist on this backend. */
+  modelCapabilities?: { search: boolean; execute: boolean };
   model: string;
   workerModel: string;
   webTools: boolean;

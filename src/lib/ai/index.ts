@@ -2,34 +2,117 @@ import "server-only";
 
 import { getConfig } from "@/server/runtime/config";
 import { createStubProvider } from "@/server/agents/stub-transport";
+import { createAnthropicProvider } from "./anthropic";
 import { createGeminiProvider } from "./gemini";
-import type { Provider } from "./types";
+import { createOpenAiProvider } from "./openai";
+import type { Provider, ProviderId, SearchResult } from "./types";
 
 /**
  * Where the model provider is chosen.
  *
- * The agent loop asks for a provider and never names one, so swapping the
- * backend again means adding a file here rather than editing the loop. The
- * instance is cached because a provider holds nothing per-request.
+ * The agent loop asks for a provider and never names one, so changing backend
+ * is a setting rather than an edit. Adding a fourth is one file plus one line
+ * in the table below; the loop, the tools and the UI do not change.
+ *
+ * Every provider here talks REST directly rather than through a vendor SDK.
+ * That keeps the dependency list empty, makes the three read the same way, and
+ * leaves retry policy in one place — which matters, because the policy is
+ * deliberately "almost never", and an SDK's default is the opposite.
  */
+
+const BUILDERS: Record<Exclude<ProviderId, "stub">, (cfg: ReturnType<typeof getConfig>) => Provider> = {
+  gemini: (cfg) =>
+    createGeminiProvider({ apiKey: cfg.apiKey, searchModel: cfg.searchModel }),
+
+  anthropic: (cfg) =>
+    createAnthropicProvider({
+      apiKey: cfg.apiKey,
+      searchModel: cfg.searchModel,
+      searchTool: cfg.anthropicSearchTool,
+      executeTool: cfg.anthropicExecuteTool,
+    }),
+
+  openai: (cfg) =>
+    createOpenAiProvider({
+      apiKey: cfg.apiKey,
+      baseUrl: cfg.openAiBaseUrl,
+      label: cfg.openAiLabel,
+    }),
+};
 
 let cached: Provider | null = null;
 let cachedKey = "";
 
 export function getProvider(): Provider {
   const cfg = getConfig();
-  const key = cfg.testTransport ? "stub" : `gemini:${cfg.apiKey.slice(-8)}`;
+  // The key includes everything that would make a different provider, so a
+  // changed setting takes effect without a restart.
+  const key = cfg.testTransport
+    ? "stub"
+    : `${cfg.provider}:${cfg.openAiBaseUrl}:${cfg.apiKey.slice(-8)}`;
 
   if (!cached || cachedKey !== key) {
-    cached = cfg.testTransport
-      ? createStubProvider()
-      : createGeminiProvider({ apiKey: cfg.apiKey });
+    cached = cfg.testTransport ? createStubProvider() : BUILDERS[cfg.provider](cfg);
     cachedKey = key;
   }
   return cached;
 }
 
-/** Drops the cached provider so a changed key takes effect. */
+/**
+ * The provider that backs web_search and code_execution.
+ *
+ * Normally the same one that answers the turns. It is separable because the
+ * capability is not universal: an OpenAI-compatible endpoint has no grounded
+ * search, so a Gemini key can supply search for a company whose employees
+ * otherwise run on something else. FRIDAY_SEARCH_PROVIDER names it.
+ */
+export function getSearchProvider(): Provider {
+  const cfg = getConfig();
+  if (cfg.testTransport || !cfg.searchProvider || cfg.searchProvider === cfg.provider) {
+    return getProvider();
+  }
+  const key = cfg.searchKeys[cfg.searchProvider];
+  if (!key) return getProvider();
+
+  return BUILDERS[cfg.searchProvider]({ ...cfg, apiKey: key });
+}
+
+/** What the tools layer asks before offering web_search / code_execution. */
+export function searchCapability(): { search: boolean; execute: boolean } {
+  const provider = getSearchProvider();
+  return {
+    search: provider.capabilities.search && typeof provider.search === "function",
+    execute: provider.capabilities.execute && typeof provider.execute === "function",
+  };
+}
+
+export async function runSearch(query: string): Promise<SearchResult> {
+  const provider = getSearchProvider();
+  if (!provider.search) {
+    return {
+      text: "",
+      sources: [],
+      error:
+        `現在の接続先（${provider.label}）はWeb検索に対応していません。` +
+        "GEMINI_API_KEY を設定して FRIDAY_SEARCH_PROVIDER=gemini にすると検索だけを任せられます。",
+    };
+  }
+  return provider.search(query);
+}
+
+export async function runExecute(task: string): Promise<SearchResult> {
+  const provider = getSearchProvider();
+  if (!provider.execute) {
+    return {
+      text: "",
+      sources: [],
+      error: `現在の接続先（${provider.label}）はコード実行に対応していません。`,
+    };
+  }
+  return provider.execute(task);
+}
+
+/** Drops the cached provider so a changed key or backend takes effect. */
 export function resetProvider(): void {
   cached = null;
   cachedKey = "";

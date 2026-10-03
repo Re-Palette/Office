@@ -22,7 +22,7 @@ export function LiveAgents() {
     <Panel className="overflow-hidden">
       <PanelHeader
         title="Live AI Employees"
-        hint={live ? "Gemini API 接続済み" : "未接続 — デモ動作中"}
+        hint={live ? `${runtime?.providerLabel ?? "モデルAPI"} 接続済み` : "未接続 — デモ動作中"}
         action={
           stubbed ? (
             <Chip className="bg-warn/12 text-warn">STUB TRANSPORT</Chip>
@@ -44,11 +44,43 @@ export function LiveAgents() {
             </p>
           )}
           <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-4">
+            <Cell label="Provider" value={runtime?.providerLabel ?? "—"} accent />
             <Cell label="Executive model" value={runtime?.model ?? "—"} />
             <Cell label="Specialist model" value={runtime?.workerModel ?? "—"} />
+            <Cell
+              label="Web search"
+              value={runtime?.modelCapabilities?.search ? "利用可" : "この接続先では不可"}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-4">
             <Cell label="Max steps / run" value={String(runtime?.maxSteps ?? "—")} />
             <Cell label="Max delegations" value={String(runtime?.maxDelegations ?? "—")} />
+            <Cell
+              label="Code execution"
+              value={runtime?.modelCapabilities?.execute ? "利用可" : "この接続先では不可"}
+            />
+            <Cell label="Thinking" value={runtime?.model ? "有効" : "—"} />
           </div>
+
+          {/* The provider is a setting, so the screen says so rather than
+              leaving someone to discover it in a file. */}
+          <p className="px-5 py-3 text-2xs leading-relaxed text-ink-muted">
+            接続先は環境変数で切り替えられます。
+            <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 font-mono text-3xs">
+              FRIDAY_PROVIDER
+            </code>
+            に <strong className="text-ink">gemini</strong>（無料枠あり）・
+            <strong className="text-ink">anthropic</strong>（Claude）・
+            <strong className="text-ink">openai</strong>
+            （OpenAI互換のエンドポイント全般／ローカルのOllamaも可）のいずれかを指定します。
+            キーを設定するだけでも自動で判定されます。
+            いま何に繋がっていて、どのモデルが使えるかは{" "}
+            <a href="/api/diagnose" target="_blank" rel="noreferrer" className="text-accent-soft hover:underline">
+              /api/diagnose
+            </a>{" "}
+            で確認できます。
+          </p>
 
           <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-4">
             <Cell label="Runs" value={String(usage.runs)} />

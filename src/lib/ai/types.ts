@@ -87,9 +87,36 @@ export interface ModelResponse {
   usage: Usage;
 }
 
+export type ProviderId = "gemini" | "anthropic" | "openai" | "stub";
+
+/**
+ * What a provider can do beyond generating text.
+ *
+ * Searching the web and running code are not universal. Gemini and Claude can
+ * both do them, by different mechanisms; an OpenAI-compatible endpoint
+ * generally cannot, and the list of those endpoints is open-ended (Groq,
+ * DeepSeek, OpenRouter, a local model). Declaring it means the tools layer can
+ * withhold a tool rather than offering one that always fails.
+ */
+export interface Capabilities {
+  /** Grounded web search. Backs the web_search tool. */
+  search: boolean;
+  /** Sandboxed code execution. Backs the code_execution tool. */
+  execute: boolean;
+}
+
+export interface SearchResult {
+  text: string;
+  sources: { title?: string; uri?: string }[];
+  error?: string;
+}
+
 export interface Provider {
   /** Shown in the dashboard and the runtime badge. */
-  readonly id: "gemini" | "stub";
+  readonly id: ProviderId;
+  /** Human name for the settings screen. */
+  readonly label: string;
+  readonly capabilities: Capabilities;
   /**
    * One turn. Implementations stream internally — the loop needs the complete
    * turn before it can run tools, but streaming keeps a long turn from sitting
@@ -97,6 +124,15 @@ export interface Provider {
    * recommends for long generations.
    */
   send(request: ModelRequest): Promise<ModelResponse>;
+  /**
+   * Grounded search, used by the web_search tool. Present when
+   * `capabilities.search` is true. Each provider does this its own way — a
+   * nested call carrying only that provider's own search tool — because none
+   * of them allow a search tool and function declarations in one request.
+   */
+  search?(query: string): Promise<SearchResult>;
+  /** Code execution, used by the code_execution tool. */
+  execute?(task: string): Promise<SearchResult>;
 }
 
 /** Thrown with a message already written for the CEO to read. */

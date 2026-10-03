@@ -1,5 +1,6 @@
 import "server-only";
 
+import { searchCapability } from "@/lib/ai";
 import { listGeminiModels } from "@/lib/ai/gemini";
 import { getConfig } from "./config";
 
@@ -271,52 +272,93 @@ function safeHost(url: string): string {
   }
 }
 
-/* ── Gemini ───────────────────────────────────────────────────────────────── */
+/* ── The model provider ──────────────────────────────────────────────────── */
 
-export interface GeminiDiagnosis {
+export interface ModelDiagnosis {
   configured: boolean;
+  /** Which backend is active, and why it was chosen. */
+  provider: string;
+  providerLabel: string;
+  chosenBy: "FRIDAY_PROVIDER" | "キーの有無から自動判定";
   /** Which models the run will ask for. */
   wants: { model: string; workerModel: string; searchModel: string };
-  /** Whether each of those is actually reachable with this key. */
+  /** Whether web_search / code_execution are available on this backend. */
+  capabilities: { search: boolean; execute: boolean };
+  /** Where search comes from, when it is not the active provider. */
+  searchProvider: string | null;
+  /** Backends a key is already present for — i.e. what can be switched to. */
+  switchable: string[];
+  /** Populated for providers that can be asked. Gemini can; the others cannot. */
   available: Record<string, boolean>;
-  /** Every model the key can call generateContent on. */
   models: string[];
   verdict: string;
 }
 
 /**
- * Asks the key which models it can use.
+ * Says what the company is talking to, and whether it will work.
  *
- * Free-tier availability moves — a model id that worked last month starts
- * returning 404 — and the failure shows up as an agent run that dies with an
- * API error. Rather than hard-coding a list that goes stale, this asks, and
- * says plainly whether the three configured ids are among the answers.
+ * The model-list probe exists because free-tier availability moves: an id
+ * that worked last month starts returning 404, and the failure shows up as an
+ * agent run that dies with an API error rather than as a setting that is
+ * wrong. Only Gemini is asked, because only it lists models without charging
+ * for the question; for the others the verdict reports what is configured.
  */
-export async function diagnoseGemini(): Promise<GeminiDiagnosis> {
+export async function diagnoseModel(): Promise<ModelDiagnosis> {
   const cfg = getConfig();
-  const wants = {
-    model: cfg.model,
-    workerModel: cfg.workerModel,
-    searchModel: cfg.searchModel,
+  const wants = { model: cfg.model, workerModel: cfg.workerModel, searchModel: cfg.searchModel };
+  const can = searchCapability();
+
+  const base: ModelDiagnosis = {
+    configured: cfg.hasApiKey,
+    provider: cfg.provider,
+    providerLabel: cfg.provider === "openai" ? cfg.openAiLabel : cfg.provider,
+    chosenBy: process.env.FRIDAY_PROVIDER?.trim() ? "FRIDAY_PROVIDER" : "キーの有無から自動判定",
+    wants,
+    capabilities: can,
+    searchProvider: cfg.searchProvider,
+    switchable: (Object.keys(cfg.searchKeys) as (keyof typeof cfg.searchKeys)[]).filter(
+      (name) => cfg.searchKeys[name],
+    ),
+    available: {},
+    models: [],
+    verdict: "",
   };
 
   if (!cfg.apiKey) {
     return {
-      configured: false,
-      wants,
-      available: {},
-      models: [],
+      ...base,
       verdict:
-        "GEMINI_API_KEY が設定されていません。aistudio.google.com/apikey で発行して設定してください。",
+        `接続先は ${cfg.provider} ですが、APIキーが設定されていません。` +
+        (cfg.provider === "gemini"
+          ? "aistudio.google.com/apikey で発行して GEMINI_API_KEY に設定してください。"
+          : cfg.provider === "anthropic"
+            ? "ANTHROPIC_API_KEY を設定してください。"
+            : "OPENAI_API_KEY と OPENAI_BASE_URL を設定してください。"),
+    };
+  }
+
+  if (cfg.provider === "openai" && !cfg.model) {
+    return {
+      ...base,
+      verdict:
+        "OpenAI互換のエンドポイントではモデル名を推測できません。FRIDAY_MODEL に設定してください。",
+    };
+  }
+
+  // Only Gemini can be asked cheaply which models a key may call.
+  if (cfg.provider !== "gemini") {
+    return {
+      ...base,
+      verdict:
+        `接続先は ${base.providerLabel}、モデルは ${cfg.model}（委譲先は ${cfg.workerModel}）です。` +
+        `Web検索${can.search ? "・コード実行" : ""}は${can.search ? "利用できます" : "この接続先では利用できません"}。`,
     };
   }
 
   const { ok, models, error } = await listGeminiModels(cfg.apiKey);
-  if (!ok) {
-    return { configured: true, wants, available: {}, models: [], verdict: error ?? "確認できませんでした。" };
-  }
+  if (!ok) return { ...base, verdict: error ?? "確認できませんでした。" };
 
-  // A configured id may name a version alias that the list reports in full
+  // A configured id may name a version alias the list reports in full
   // (models/gemini-2.5-flash-001), so a prefix match counts as available.
   const has = (id: string) => models.some((m) => m === id || m.startsWith(`${id}-`));
   const available = {
@@ -324,20 +366,18 @@ export async function diagnoseGemini(): Promise<GeminiDiagnosis> {
     [wants.workerModel]: has(wants.workerModel),
     [wants.searchModel]: has(wants.searchModel),
   };
-
   const missing = Object.entries(available)
     .filter(([, ok]) => !ok)
     .map(([id]) => id);
 
   return {
-    configured: true,
-    wants,
+    ...base,
     available,
     models,
     verdict:
       missing.length === 0
-        ? `キーは有効で、設定されたモデルはすべて利用できます（${models.length}件のモデルにアクセス可能）。`
+        ? `キーは有効で、設定されたモデルはすべて利用できます（${models.length}件にアクセス可能）。`
         : `次のモデルがこのキーでは利用できません: ${missing.join(", ")}。` +
-          `models の一覧から選んで GEMINI_MODEL / GEMINI_WORKER_MODEL を設定してください。`,
+          "models の一覧から選んで GEMINI_MODEL / GEMINI_WORKER_MODEL を設定してください。",
   };
 }

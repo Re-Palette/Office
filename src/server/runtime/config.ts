@@ -66,8 +66,24 @@ export interface SupabaseConfig {
 export interface RuntimeConfig {
   mode: RuntimeMode;
   hasApiKey: boolean;
-  /** The Gemini key. Server-only — this module is never imported by the UI. */
+  /** Which backend answers the turns. */
+  provider: ProviderName;
+  /** The active provider's key. Server-only; the UI never imports this. */
   apiKey: string;
+  /**
+   * The provider that backs web_search / code_execution, when it differs.
+   * Null means "the same one". An OpenAI-compatible endpoint has no grounded
+   * search, so this lets a Gemini key supply search and nothing else.
+   */
+  searchProvider: ProviderName | null;
+  /** Keys for providers other than the active one, for the above. */
+  searchKeys: Record<ProviderName, string>;
+  /** Any OpenAI-compatible endpoint, including a local one. */
+  openAiBaseUrl: string;
+  /** What to call it in the dashboard, since one file serves many services. */
+  openAiLabel: string;
+  anthropicSearchTool: string;
+  anthropicExecuteTool: string;
   /** Model the executives and report authors run on. */
   model: string;
   /** Model specialists run on. Cheaper than `model` by default. */
@@ -111,8 +127,47 @@ export interface RuntimeConfig {
  * availability moves and a model id that works today can 404 next month;
  * /api/diagnose lists what the key can actually reach.
  */
-const DEFAULT_MODEL = "gemini-2.5-flash";
-const DEFAULT_WORKER_MODEL = "gemini-2.5-flash-lite";
+/**
+ * Per-provider defaults.
+ *
+ * A model id only means something to the provider it belongs to, so switching
+ * backend has to switch these too — otherwise FRIDAY_PROVIDER=anthropic asks
+ * Claude for a Gemini model and gets a 404 that looks like a bug.
+ */
+const PROVIDER_DEFAULTS: Record<
+  ProviderName,
+  { model: string; workerModel: string; searchModel: string }
+> = {
+  // Flash is what the free tier actually serves; Pro is paid-only. Lite is
+  // cheaper again with a higher request allowance, so it takes delegated work
+  // and the nested search calls — the two that multiply.
+  gemini: {
+    model: "gemini-2.5-flash",
+    workerModel: "gemini-2.5-flash-lite",
+    searchModel: "gemini-2.5-flash-lite",
+  },
+  anthropic: {
+    model: "claude-opus-5",
+    workerModel: "claude-sonnet-5",
+    searchModel: "claude-haiku-4-5-20251001",
+  },
+  // No default worth guessing: this one file serves every OpenAI-compatible
+  // endpoint, and each has its own names. FRIDAY_MODEL is required.
+  openai: { model: "", workerModel: "", searchModel: "" },
+};
+
+export type ProviderName = "gemini" | "anthropic" | "openai";
+
+/** Which environment variable holds each provider's key. */
+const KEY_VARS: Record<ProviderName, string[]> = {
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+  openai: ["OPENAI_API_KEY"],
+};
+
+/** Versioned server-tool identifiers, overridable as they are revised. */
+const DEFAULT_ANTHROPIC_SEARCH_TOOL = "web_search_20260209";
+const DEFAULT_ANTHROPIC_EXECUTE_TOOL = "code_execution_20260521";
 
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
@@ -271,30 +326,100 @@ function supabaseConfig(): SupabaseConfig {
 }
 
 /**
+ * Which backend to use.
+ *
+ * Named explicitly by FRIDAY_PROVIDER, or inferred from whichever key is
+ * present — so setting a key is enough and nothing has to be configured
+ * twice. Gemini is tried first because it is the one with a free tier.
+ */
+function resolveProvider(): ProviderName {
+  const named = str(process.env.FRIDAY_PROVIDER).toLowerCase();
+  if (named === "gemini" || named === "anthropic" || named === "openai") return named;
+  if (named === "google") return "gemini";
+  if (named === "claude") return "anthropic";
+
+  for (const candidate of ["gemini", "anthropic", "openai"] as ProviderName[]) {
+    if (keyFor(candidate)) return candidate;
+  }
+  return "gemini";
+}
+
+function keyFor(provider: ProviderName): string {
+  for (const name of KEY_VARS[provider]) {
+    const value = cleanSecret(process.env[name]);
+    if (value) return value;
+  }
+  return "";
+}
+
+/**
  * The model ids, resolved once.
  *
- * `GEMINI_*` is the name to use. `FRIDAY_MODEL` is still read because it was
- * the name before the provider changed and is already set in deployments; a
- * value left over from then would name a Claude model, which Gemini would
- * 404, so those are ignored rather than passed through to a confusing error.
+ * FRIDAY_MODEL is provider-neutral and wins, because it is the name that was
+ * already in deployments. A value left over from a different backend would
+ * 404 confusingly, so an id that plainly belongs to another provider is
+ * ignored rather than passed through.
  */
-function models(): { model: string; workerModel: string; searchModel: string } {
-  const legacy = (value: string | undefined): string => {
-    const v = str(value);
-    return v && !/^claude/i.test(v) ? v : "";
+function models(provider: ProviderName): {
+  model: string;
+  workerModel: string;
+  searchModel: string;
+} {
+  const defaults = PROVIDER_DEFAULTS[provider];
+
+  const sameFamily = (value: string): boolean => {
+    if (!value) return false;
+    const claude = /^claude/i.test(value);
+    const gemini = /^gemini/i.test(value);
+    if (provider === "anthropic") return !gemini;
+    if (provider === "gemini") return !claude;
+    // An OpenAI-compatible endpoint can serve any name, including these.
+    return true;
   };
 
-  const model = str(process.env.GEMINI_MODEL) || legacy(process.env.FRIDAY_MODEL) || DEFAULT_MODEL;
-  const workerModel =
-    str(process.env.GEMINI_WORKER_MODEL) ||
-    legacy(process.env.FRIDAY_WORKER_MODEL) ||
-    DEFAULT_WORKER_MODEL;
+  const pick = (...candidates: (string | undefined)[]): string => {
+    for (const candidate of candidates) {
+      const value = str(candidate);
+      if (sameFamily(value)) return value;
+    }
+    return "";
+  };
 
+  // Provider-specific names take precedence over the neutral ones.
+  const specific =
+    provider === "gemini"
+      ? {
+          model: process.env.GEMINI_MODEL,
+          worker: process.env.GEMINI_WORKER_MODEL,
+          search: process.env.GEMINI_SEARCH_MODEL,
+        }
+      : { model: undefined, worker: undefined, search: undefined };
+
+  const model = pick(specific.model, process.env.FRIDAY_MODEL) || defaults.model;
   return {
     model,
-    workerModel,
-    searchModel: str(process.env.GEMINI_SEARCH_MODEL) || DEFAULT_WORKER_MODEL,
+    workerModel:
+      pick(specific.worker, process.env.FRIDAY_WORKER_MODEL) || defaults.workerModel || model,
+    searchModel:
+      pick(specific.search, process.env.FRIDAY_SEARCH_MODEL) || defaults.searchModel || model,
   };
+}
+
+/** The provider that answers web_search, when it is not the active one. */
+function resolveSearchProvider(active: ProviderName): ProviderName | null {
+  const named = str(process.env.FRIDAY_SEARCH_PROVIDER).toLowerCase();
+  if (named === "gemini" || named === "anthropic") return named;
+  if (named === "google") return "gemini";
+  if (named === "claude") return "anthropic";
+  if (named === "off" || named === "none") return null;
+
+  // Not named: an endpoint with no search of its own borrows one if a key for
+  // a provider that has search happens to be present.
+  if (active === "openai") {
+    if (keyFor("gemini")) return "gemini";
+    if (keyFor("anthropic")) return "anthropic";
+  }
+  return null;
 }
 
 function thinkingLevel(): RuntimeConfig["thinking"] {
@@ -306,18 +431,29 @@ function thinkingLevel(): RuntimeConfig["thinking"] {
 
 export function getConfig(): RuntimeConfig {
   const testTransport = bool(process.env.FRIDAY_TEST_TRANSPORT, false);
-  // GOOGLE_API_KEY is the other name Google's own tooling uses for the same
-  // value, so both are accepted and neither has to be guessed at.
-  const apiKey =
-    cleanSecret(process.env.GEMINI_API_KEY) || cleanSecret(process.env.GOOGLE_API_KEY);
+  const provider = resolveProvider();
+  const apiKey = keyFor(provider);
   const hasApiKey = testTransport || Boolean(apiKey);
 
   return {
     mode: hasApiKey ? "live" : "demo",
     testTransport,
     hasApiKey,
+    provider,
     apiKey,
-    ...models(),
+    searchProvider: resolveSearchProvider(provider),
+    searchKeys: {
+      gemini: keyFor("gemini"),
+      anthropic: keyFor("anthropic"),
+      openai: keyFor("openai"),
+    },
+    openAiBaseUrl: str(process.env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
+    openAiLabel: str(process.env.OPENAI_LABEL) || "OpenAI 互換",
+    anthropicSearchTool:
+      str(process.env.ANTHROPIC_SEARCH_TOOL) || DEFAULT_ANTHROPIC_SEARCH_TOOL,
+    anthropicExecuteTool:
+      str(process.env.ANTHROPIC_EXECUTE_TOOL) || DEFAULT_ANTHROPIC_EXECUTE_TOOL,
+    ...models(provider),
     maxOutputTokens: int(process.env.GEMINI_MAX_OUTPUT_TOKENS, 8_192),
     thinking: thinkingLevel(),
     // Lower than they were under a paid key: on the free tier every loop step
@@ -344,8 +480,12 @@ export interface StorageStatus {
 /** Safe to expose to the browser — never includes the key itself. */
 export interface PublicRuntimeStatus {
   mode: RuntimeMode;
-  /** "gemini" is the real API; "stub" is the scripted development transport. */
-  transport: "gemini" | "stub";
+  /** The backend in use, or "stub" for the scripted development transport. */
+  transport: ProviderName | "stub";
+  /** Its display name, which for an OpenAI-compatible endpoint is settable. */
+  providerLabel: string;
+  /** Whether web_search / code_execution are available on this backend. */
+  modelCapabilities: { search: boolean; execute: boolean };
   model: string;
   workerModel: string;
   webTools: boolean;
@@ -374,15 +514,32 @@ export interface PublicRuntimeStatus {
   storageError: string | null;
 }
 
+const PROVIDER_LABELS: Record<ProviderName, string> = {
+  gemini: "Google Gemini",
+  anthropic: "Anthropic Claude",
+  openai: "OpenAI 互換",
+};
+
+function providerLabel(c: RuntimeConfig): string {
+  if (c.testTransport) return "スタブ（開発用）";
+  return c.provider === "openai" ? c.openAiLabel : PROVIDER_LABELS[c.provider];
+}
+
 /**
- * `storage` is passed in rather than read here, so this module stays free of
- * any dependency on the store — which depends on it.
+ * `storage` and `capabilities` are passed in rather than read here, so this
+ * module stays free of any dependency on the store or the provider registry —
+ * both of which depend on it.
  */
-export function publicStatus(storage: StorageStatus): PublicRuntimeStatus {
+export function publicStatus(
+  storage: StorageStatus,
+  capabilities: { search: boolean; execute: boolean },
+): PublicRuntimeStatus {
   const c = getConfig();
   return {
     mode: c.mode,
-    transport: c.testTransport ? "stub" : "gemini",
+    transport: c.testTransport ? "stub" : c.provider,
+    providerLabel: providerLabel(c),
+    modelCapabilities: capabilities,
     model: c.model,
     workerModel: c.workerModel,
     webTools: c.webTools,

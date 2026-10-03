@@ -1,6 +1,6 @@
 import "server-only";
 
-import { describeGeminiError, readSse } from "./gemini";
+import { runExecute, runSearch } from "./index";
 import type { ToolDef } from "./types";
 
 /**
@@ -15,17 +15,15 @@ import type { ToolDef } from "./types";
  * company's eleven tools.
  *
  * So they are declared to the model as ordinary functions and executed here
- * instead. Searching and running code need Gemini, and each becomes one
- * nested, single-purpose call that carries no function declarations at all.
- * Fetching a page does not need a model, so it is done directly — which also
- * makes it free, where routing it through `urlContext` would spend quota.
+ * instead. Searching and running code are asked of the provider, which does
+ * each as its own nested single-purpose call — the shape every one of them
+ * requires, by its own mechanism. Fetching a page does not need a model at
+ * all, so it is done directly here, which also makes it cost no quota.
  *
  * Two things fall out of owning the execution, both of which the free tier
  * wants: every result is capped before it enters the transcript, and a fetch
  * costs nothing.
  */
-
-const HOST = "https://generativelanguage.googleapis.com/v1beta";
 
 /** Ceilings on what one tool result may add to the conversation. */
 const SEARCH_RESULT_CHARS = 6_000;
@@ -88,109 +86,14 @@ export const SERVER_TOOL_NAMES = new Set([
   CODE_EXECUTION_TOOL.name,
 ]);
 
-/* ── A nested, single-purpose Gemini call ─────────────────────────────────── */
-
-interface NestedOptions {
-  apiKey: string;
-  model: string;
-  fetchImpl?: typeof fetch;
-}
-
-interface Web {
-  title?: string;
-  uri?: string;
-}
-
-/**
- * One call carrying exactly one built-in tool and no function declarations,
- * which is the combination Gemini allows.
- */
-async function nested(
-  options: NestedOptions,
-  tool: Record<string, unknown>,
-  prompt: string,
-  system: string,
-): Promise<{ text: string; sources: Web[]; error?: string }> {
-  const doFetch = options.fetchImpl ?? fetch;
-  const url =
-    `${HOST}/models/${encodeURIComponent(options.model)}:streamGenerateContent?alt=sse`;
-
-  let response: Response;
-  try {
-    response = await doFetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": options.apiKey },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        systemInstruction: { parts: [{ text: system }] },
-        tools: [tool],
-        // No thinking: this is a lookup, and the budget would come out of the
-        // same quota the agent's own turns need.
-        generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
-      }),
-      cache: "no-store",
-    });
-  } catch (error) {
-    return { text: "", sources: [], error: describeGeminiError(null, (error as Error).message).message };
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    return { text: "", sources: [], error: describeGeminiError(response.status, body).message };
-  }
-
-  const chunks = (await readSse(response)) as {
-    candidates?: {
-      content?: { parts?: Record<string, unknown>[] };
-      groundingMetadata?: { groundingChunks?: { web?: Web }[] };
-    }[];
-  }[];
-
-  let text = "";
-  const sources: Web[] = [];
-  const seen = new Set<string>();
-
-  for (const chunk of chunks) {
-    const candidate = chunk.candidates?.[0];
-    for (const part of candidate?.content?.parts ?? []) {
-      if (part.thought === true) continue;
-      if (typeof part.text === "string") text += part.text;
-
-      // Code execution reports back as its own part types.
-      const code = part.executableCode as { code?: string } | undefined;
-      if (code?.code) text += `\n[実行したコード]\n${code.code}\n`;
-      const result = part.codeExecutionResult as { outcome?: string; output?: string } | undefined;
-      if (result) {
-        text += `\n[実行結果${result.outcome && result.outcome !== "OUTCOME_OK" ? ` ${result.outcome}` : ""}]\n${result.output ?? ""}\n`;
-      }
-    }
-    for (const g of candidate?.groundingMetadata?.groundingChunks ?? []) {
-      const uri = g.web?.uri;
-      if (uri && !seen.has(uri)) {
-        seen.add(uri);
-        sources.push(g.web as Web);
-      }
-    }
-  }
-
-  return { text: text.trim(), sources };
-}
-
 /* ── web_search ───────────────────────────────────────────────────────────── */
 
 export async function runWebSearch(
-  options: NestedOptions,
   query: string,
 ): Promise<{ content: string; isError: boolean }> {
   if (!query.trim()) return { content: "検索語が空です。", isError: true };
 
-  const { text, sources, error } = await nested(
-    options,
-    { googleSearch: {} },
-    query,
-    "ユーザーの問いに、Google検索の結果だけを根拠に答えてください。" +
-      "事実と、その出典を簡潔に示します。推測は書かず、分からなければ分からないと書いてください。",
-  );
+  const { text, sources, error } = await runSearch(query);
 
   if (error) return { content: `検索に失敗しました: ${error}`, isError: true };
   if (!text && sources.length === 0) {
@@ -214,18 +117,11 @@ export async function runWebSearch(
 /* ── code_execution ───────────────────────────────────────────────────────── */
 
 export async function runCodeExecution(
-  options: NestedOptions,
   task: string,
 ): Promise<{ content: string; isError: boolean }> {
   if (!task.trim()) return { content: "計算内容が空です。", isError: true };
 
-  const { text, error } = await nested(
-    options,
-    { codeExecution: {} },
-    task,
-    "Pythonコードを書いて実行し、計算結果を返してください。" +
-      "値は与えられたものだけを使い、足りなければ何が足りないかを書いてください。",
-  );
+  const { text, error } = await runExecute(task);
 
   if (error) return { content: `計算に失敗しました: ${error}`, isError: true };
   return {

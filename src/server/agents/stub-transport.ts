@@ -157,6 +157,12 @@ function turnsFor(
 export function createStubProvider(): Provider {
   return {
     id: "stub",
+    label: "スタブ（開発用）",
+    // The scripted turns never call these, but declaring them keeps the
+    // tool list identical to a live run so the self-test covers the real one.
+    capabilities: { search: true, execute: true },
+    search: async (query: string) => ({ text: `（stub）${query} の検索結果`, sources: [] }),
+    execute: async (task: string) => ({ text: `（stub）${task} の計算結果`, sources: [] }),
 
     async send(request: ModelRequest): Promise<ModelResponse> {
       const role = request.system.match(/\[ROLE\] ([^—\n]+)/)?.[1]?.trim() ?? "COO";

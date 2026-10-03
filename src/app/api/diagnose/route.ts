@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { diagnoseGemini, diagnoseSupabase } from "@/server/runtime/diagnose";
+import { diagnoseModel, diagnoseSupabase } from "@/server/runtime/diagnose";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,9 +16,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   // Both checks are independent, so neither waits on the other.
-  const [supabase, gemini] = await Promise.all([diagnoseSupabase(), diagnoseGemini()]);
+  const [supabase, model] = await Promise.all([diagnoseSupabase(), diagnoseModel()]);
   return NextResponse.json(
-    { gemini, supabase },
+    { model, supabase },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

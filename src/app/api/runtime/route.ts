@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { searchCapability } from "@/lib/ai";
 import { publicStatus } from "@/server/runtime/config";
 import { stateful } from "@/server/runtime/stateful";
 import { storageStatus } from "@/server/runtime/store";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
  * identical to a working one until work quietly stopped being saved.
  */
 async function handleGET() {
-  return NextResponse.json(publicStatus(storageStatus()), {
+  return NextResponse.json(publicStatus(storageStatus(), searchCapability()), {
     headers: { "Cache-Control": "no-store" },
   });
 }

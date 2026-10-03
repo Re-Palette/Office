@@ -40,6 +40,11 @@ const { diagnoseSupabase } = await import("../src/server/runtime/diagnose");
 const { createGeminiProvider, describeGeminiError, foldChunks, toGeminiContents, toGeminiSchema } =
   await import("../src/lib/ai/gemini");
 const { checkFetchUrl, htmlToText } = await import("../src/lib/ai/server-tools");
+const { createAnthropicProvider, toAnthropicMessages } = await import("../src/lib/ai/anthropic");
+const { createOpenAiProvider, fromCompletion, toOpenAiMessages } = await import(
+  "../src/lib/ai/openai"
+);
+const { getConfig } = await import("../src/server/runtime/config");
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { getReport } = await import("../src/server/report-store");
 
@@ -1299,6 +1304,233 @@ const text = htmlToText(
 check("the title is kept", text.startsWith("記事"));
 check("script and style are stripped", !text.includes("alert") && !text.includes("color:red"));
 check("entities are decoded", text.includes("本文&続き"));
+
+// ── Changing provider later ────────────────────────────────────────────────
+//
+// The point of the provider seam: a different backend is a setting, not an
+// edit. Each of the three is exercised through the same interface the loop
+// uses, so "it compiles" is not the standard being met here.
+console.log("\n=== Switching provider ===\n");
+
+function envScope<T>(vars: Record<string, string | undefined>, fn: () => T): T {
+  const before: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    before[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+const noKeys = { GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined, OPENAI_API_KEY: undefined, FRIDAY_PROVIDER: undefined, FRIDAY_MODEL: undefined, FRIDAY_WORKER_MODEL: undefined, FRIDAY_SEARCH_PROVIDER: undefined, FRIDAY_TEST_TRANSPORT: undefined };
+
+// Setting a key is enough — the provider does not have to be named twice.
+const auto = envScope({ ...noKeys, GEMINI_API_KEY: "AIza-x" }, () => getConfig());
+check("a Gemini key alone selects Gemini", auto.provider === "gemini", auto.provider);
+check("and brings Gemini's model defaults", auto.model.startsWith("gemini-"), auto.model);
+
+const autoClaude = envScope({ ...noKeys, ANTHROPIC_API_KEY: "sk-ant-x" }, () => getConfig());
+check("an Anthropic key alone selects Claude", autoClaude.provider === "anthropic", autoClaude.provider);
+// Model ids only mean something to their own provider, so the defaults move too.
+check("and brings Claude's model defaults", autoClaude.model.startsWith("claude-"), autoClaude.model);
+check("including a cheaper model for delegated work", autoClaude.workerModel.startsWith("claude-"), autoClaude.workerModel);
+
+// Naming it explicitly wins over detection, even with several keys present.
+const named = envScope(
+  { ...noKeys, GEMINI_API_KEY: "AIza-x", ANTHROPIC_API_KEY: "sk-ant-x", FRIDAY_PROVIDER: "anthropic" },
+  () => getConfig(),
+);
+check("FRIDAY_PROVIDER overrides detection", named.provider === "anthropic", named.provider);
+check("and the key for that provider is the one used", named.apiKey === "sk-ant-x");
+const aliased = envScope({ ...noKeys, ANTHROPIC_API_KEY: "k", FRIDAY_PROVIDER: "claude" }, () => getConfig());
+check("the name people actually say also works", aliased.provider === "anthropic", aliased.provider);
+
+// A leftover model id from the previous backend must not be passed through:
+// it would 404 in a way that reads like a bug rather than a stale setting.
+const stale = envScope(
+  { ...noKeys, ANTHROPIC_API_KEY: "k", FRIDAY_PROVIDER: "anthropic", FRIDAY_MODEL: "gemini-2.5-flash" },
+  () => getConfig(),
+);
+check("a stale Gemini id is ignored when on Claude", stale.model.startsWith("claude-"), stale.model);
+const staleBack = envScope(
+  { ...noKeys, GEMINI_API_KEY: "k", FRIDAY_PROVIDER: "gemini", FRIDAY_MODEL: "claude-opus-5" },
+  () => getConfig(),
+);
+check("and a stale Claude id is ignored when on Gemini", staleBack.model.startsWith("gemini-"), staleBack.model);
+// A deliberate id for the active provider is of course honoured.
+const chosen = envScope(
+  { ...noKeys, GEMINI_API_KEY: "k", FRIDAY_MODEL: "gemini-2.5-pro" },
+  () => getConfig(),
+);
+check("an explicit model for the active provider is honoured", chosen.model === "gemini-2.5-pro", chosen.model);
+
+// One file serves every OpenAI-compatible endpoint, so the base URL is the
+// whole of "switching to that service" — including a model on this machine.
+const local = envScope(
+  {
+    ...noKeys,
+    OPENAI_API_KEY: "k",
+    FRIDAY_PROVIDER: "openai",
+    OPENAI_BASE_URL: "http://localhost:11434/v1",
+    OPENAI_LABEL: "Ollama (ローカル)",
+    FRIDAY_MODEL: "llama3.1",
+  },
+  () => getConfig(),
+);
+check("an OpenAI-compatible endpoint is reachable by URL alone", local.openAiBaseUrl === "http://localhost:11434/v1");
+check("with its own label for the dashboard", local.openAiLabel === "Ollama (ローカル)");
+check("and its own model name", local.model === "llama3.1");
+
+// Capability is not universal. An endpoint without search borrows one if a
+// key that has it is present, rather than offering a tool that always fails.
+const borrowed = envScope(
+  { ...noKeys, OPENAI_API_KEY: "k", GEMINI_API_KEY: "AIza-x", FRIDAY_PROVIDER: "openai", FRIDAY_MODEL: "m" },
+  () => getConfig(),
+);
+check("search is borrowed from a provider that has it", borrowed.searchProvider === "gemini", String(borrowed.searchProvider));
+const noSearch = envScope(
+  { ...noKeys, OPENAI_API_KEY: "k", FRIDAY_PROVIDER: "openai", FRIDAY_MODEL: "m" },
+  () => getConfig(),
+);
+check("and is simply absent when nothing can supply it", noSearch.searchProvider === null, String(noSearch.searchProvider));
+
+/* The three providers, each driven through the loop's own interface. */
+
+const anthropicProvider = createAnthropicProvider({
+  apiKey: "sk-ant-test",
+  searchModel: "claude-haiku-4-5-20251001",
+  searchTool: "web_search_20260209",
+  executeTool: "code_execution_20260521",
+  fetchImpl: (async (_u: string, init: RequestInit) => {
+    claudeBody = JSON.parse(String(init.body));
+    claudeHeaders = init.headers as Record<string, string>;
+    return new Response(
+      JSON.stringify({
+        content: [
+          { type: "text", text: "承知しました。" },
+          { type: "tool_use", id: "toolu_1", name: "log_progress", input: { message: "開始" } },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 2000, output_tokens: 50, cache_read_input_tokens: 1800 },
+      }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch,
+});
+
+let claudeBody: Record<string, never> = {} as never;
+let claudeHeaders: Record<string, string> = {};
+
+const claudeTurn = await anthropicProvider.send({
+  model: "claude-opus-5",
+  system: "[ROLE] COO — テスト",
+  messages: [
+    { role: "user", content: "状況を教えて" },
+    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "log_progress", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", name: "log_progress", content: "ok" }] },
+  ],
+  tools: companyToolsFor({ agentId: "coo", canDelegate: true, canReport: true }),
+  maxOutputTokens: 4096,
+  thinking: "high",
+});
+
+const cb = claudeBody as unknown as {
+  system: { type: string; text: string; cache_control?: unknown }[];
+  tools?: { name: string; input_schema: Record<string, unknown> }[];
+  messages: { role: string; content: unknown }[];
+};
+check("Claude gets the key as x-api-key", claudeHeaders["x-api-key"] === "sk-ant-test");
+check("and the required version header", claudeHeaders["anthropic-version"] === "2023-06-01");
+// The 48 employees re-send a long system prompt every turn; caching it is the
+// largest saving available on this provider.
+check("the shared system prompt is marked cacheable", Boolean(cb.system[0].cache_control));
+// Unlike Gemini, this API takes JSON Schema as written.
+check("tool schemas pass through untouched", "additionalProperties" in (cb.tools?.[0].input_schema ?? {}));
+check("tool results stay keyed by id", JSON.stringify(cb.messages[2]).includes("t1"));
+check("a tool call comes back as a tool_use", claudeTurn.blocks[1]?.type === "tool_use");
+check("cache reads are reported", claudeTurn.usage.cachedTokens === 1800);
+
+let oaiBody: Record<string, never> = {} as never;
+const openAiProvider = createOpenAiProvider({
+  apiKey: "k",
+  baseUrl: "http://localhost:11434/v1",
+  label: "Ollama",
+  fetchImpl: (async (_u: string, init: RequestInit) => {
+    oaiBody = JSON.parse(String(init.body));
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              content: "確認します",
+              tool_calls: [
+                { id: "call_1", function: { name: "log_progress", arguments: '{"message":"開始"}' } },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 900, completion_tokens: 30 },
+      }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch,
+});
+
+const oaiTurn = await openAiProvider.send({
+  model: "llama3.1",
+  system: "[ROLE] COO — テスト",
+  messages: [
+    { role: "assistant", content: [{ type: "tool_use", id: "c1", name: "log_progress", input: { a: 1 } }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", name: "log_progress", content: "ok" }] },
+  ],
+  tools: [{ name: "log_progress", description: "d", parameters: { type: "object", properties: {} } }],
+  maxOutputTokens: 1024,
+  thinking: "off",
+});
+
+const ob = oaiBody as unknown as {
+  messages: { role: string; content?: unknown; tool_calls?: { function: { arguments: string } }[] }[];
+  tools?: { type: string; function: { name: string } }[];
+};
+check("the system prompt becomes a system message", ob.messages[0].role === "system");
+// This shape differs most: calls hang off the assistant message with
+// stringified arguments, and each result is its own role:"tool" message.
+check("tool call arguments are stringified", typeof ob.messages[1].tool_calls?.[0].function.arguments === "string");
+check("each tool result becomes its own message", ob.messages[2].role === "tool");
+check("tools are wrapped as type:function", ob.tools?.[0].type === "function");
+check("a tool call comes back as a tool_use", oaiTurn.blocks[1]?.type === "tool_use");
+check("and keeps the endpoint's own call id", oaiTurn.blocks[1]?.type === "tool_use" && oaiTurn.blocks[1].id === "call_1");
+check("this backend declares no search", openAiProvider.capabilities.search === false);
+check("so the tool is withheld rather than offered broken", typeof openAiProvider.search !== "function");
+
+// Unparseable arguments are the same failure Gemini reports as
+// MALFORMED_FUNCTION_CALL, and must stop the run rather than loop.
+const brokenArgs = fromCompletion({
+  choices: [
+    {
+      finish_reason: "tool_calls",
+      message: { tool_calls: [{ id: "x", function: { name: "f", arguments: "{not json" } }] },
+    },
+  ],
+});
+check("broken arguments stop the run, not loop it", brokenArgs.stopReason === "malformed_tool_call");
+
+// The transcript shape is the reason a paused run survives a provider change.
+const paused: Parameters<typeof toAnthropicMessages>[0] = [
+  { role: "assistant", content: [{ type: "tool_use", id: "t9", name: "send_email", input: { to: ["a@b.c"] } }] },
+  { role: "user", content: [{ type: "tool_result", tool_use_id: "t9", name: "send_email", content: "承認待ち" }] },
+];
+check("a transcript paused on one provider converts for Claude", JSON.stringify(toAnthropicMessages(paused)).includes("send_email"));
+check("and for Gemini", JSON.stringify(toGeminiContents(paused)).includes("send_email"));
+check("and for an OpenAI-compatible endpoint", JSON.stringify(toOpenAiMessages("s", paused)).includes("send_email"));
 
 // ── What every employee is told about its own company ──────────────────────
 //

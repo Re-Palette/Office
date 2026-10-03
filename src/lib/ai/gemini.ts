@@ -8,6 +8,7 @@ import {
   type ModelResponse,
   type Msg,
   type Provider,
+  type SearchResult,
   type StopReason,
   type ToolDef,
   type Usage,
@@ -361,6 +362,11 @@ export function thinkingBudget(level: ModelRequest["thinking"]): number {
 
 export interface GeminiOptions {
   apiKey: string;
+  /**
+   * Model for the nested search / code-execution calls. One agent turn can
+   * trigger several, so this is normally the cheapest model available.
+   */
+  searchModel: string;
   /** Lets the self-test drive the provider without a network. */
   fetchImpl?: typeof fetch;
 }
@@ -370,6 +376,30 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
 
   return {
     id: "gemini",
+    label: "Google Gemini",
+    // Both are real, but neither can be sent alongside function
+    // declarations, so each runs as its own nested call below.
+    capabilities: { search: true, execute: true },
+
+    search: (query: string) =>
+      nested(
+        doFetch,
+        options,
+        { googleSearch: {} },
+        query,
+        "ユーザーの問いに、Google検索の結果だけを根拠に答えてください。" +
+          "事実と、その出典を簡潔に示します。推測は書かず、分からなければ分からないと書いてください。",
+      ),
+
+    execute: (task: string) =>
+      nested(
+        doFetch,
+        options,
+        { codeExecution: {} },
+        task,
+        "Pythonコードを書いて実行し、計算結果を返してください。" +
+          "値は与えられたものだけを使い、足りなければ何が足りないかを書いてください。",
+      ),
 
     async send(request: ModelRequest): Promise<ModelResponse> {
       const body: Record<string, unknown> = {
@@ -527,4 +557,84 @@ export async function listGeminiModels(
   } catch (error) {
     return { ok: false, models: [], error: (error as Error).message };
   }
+}
+
+
+/* ── The nested single-purpose call ───────────────────────────────────────── */
+
+/**
+ * One request carrying exactly one built-in tool and no function
+ * declarations, which is the combination Gemini allows.
+ *
+ * Thinking is off: this is a lookup, and a reasoning budget here would come
+ * out of the same quota the agent's own turns need.
+ */
+async function nested(
+  doFetch: typeof fetch,
+  options: GeminiOptions,
+  tool: Record<string, unknown>,
+  prompt: string,
+  system: string,
+): Promise<SearchResult> {
+  const url =
+    `${HOST}/models/${encodeURIComponent(options.searchModel)}:streamGenerateContent?alt=sse`;
+
+  let response: Response;
+  try {
+    response = await doFetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": options.apiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: system }] },
+        tools: [tool],
+        generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+      cache: "no-store",
+    });
+  } catch (error) {
+    return { text: "", sources: [], error: describeGeminiError(null, (error as Error).message).message };
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    return { text: "", sources: [], error: describeGeminiError(response.status, body).message };
+  }
+
+  const chunks = (await readSse(response)) as unknown as {
+    candidates?: {
+      content?: { parts?: Record<string, unknown>[] };
+      groundingMetadata?: { groundingChunks?: { web?: { title?: string; uri?: string } }[] };
+    }[];
+  }[];
+
+  let text = "";
+  const sources: { title?: string; uri?: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const chunk of chunks) {
+    const candidate = chunk.candidates?.[0];
+    for (const part of candidate?.content?.parts ?? []) {
+      if (part.thought === true) continue;
+      if (typeof part.text === "string") text += part.text;
+
+      // Code execution reports back as its own part types.
+      const code = part.executableCode as { code?: string } | undefined;
+      if (code?.code) text += `\n[実行したコード]\n${code.code}\n`;
+      const result = part.codeExecutionResult as { outcome?: string; output?: string } | undefined;
+      if (result) {
+        const bad = result.outcome && result.outcome !== "OUTCOME_OK" ? ` ${result.outcome}` : "";
+        text += `\n[実行結果${bad}]\n${result.output ?? ""}\n`;
+      }
+    }
+    for (const g of candidate?.groundingMetadata?.groundingChunks ?? []) {
+      const uri = g.web?.uri;
+      if (uri && !seen.has(uri)) {
+        seen.add(uri);
+        sources.push(g.web ?? {});
+      }
+    }
+  }
+
+  return { text: text.trim(), sources };
 }
