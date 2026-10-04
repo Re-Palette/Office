@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { stateful } from "@/server/runtime/stateful";
 import { AGENTS_BY_ID } from "@/lib/company/agents";
-import type { ApprovalStatus, ReportStatus } from "@/lib/types";
 import { getConfig } from "@/server/runtime/config";
-import { mutate } from "@/server/runtime/store";
 import { resumeRun } from "@/server/agents/runner";
 import { background } from "@/server/runtime/background";
-import { putReport } from "@/server/report-store";
+import { applyDecision, type Decision } from "@/server/decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,14 +12,13 @@ export const dynamic = "force-dynamic";
 // progress into the activity feed, so a cut-off loses the tail, not the work.
 export const maxDuration = 300;
 
-type Decision = "approved" | "rejected" | "revision_requested";
-
 /**
  * POST /api/decisions — the CEO decides.
  *
  * This is the point of the whole approval gate: the decision is recorded, the
  * blocked task is released, and the AI employee that stopped to ask picks its
- * work back up from where it paused.
+ * work back up from where it paused. The decision itself lives in
+ * server/decisions.ts, because the vice-president agent reaches the same gate.
  */
 async function handlePOST(request: Request) {
   if (getConfig().mode === "demo") {
@@ -37,91 +34,16 @@ async function handlePOST(request: Request) {
 
   const decision = body.decision;
   if (!decision || !["approved", "rejected", "revision_requested"].includes(decision)) {
-    return NextResponse.json({ error: "decision must be approved | rejected | revision_requested" }, { status: 422 });
+    return NextResponse.json(
+      { error: "decision must be approved | rejected | revision_requested" },
+      { status: 422 },
+    );
   }
 
-  const now = Date.now();
-
-  const resolved = mutate((s) => {
-    const approval = body.approvalId
-      ? s.approvals.find((a) => a.id === body.approvalId)
-      : body.reportId
-        ? s.approvals.find((a) => a.relatedReportId === body.reportId && a.status === "pending")
-        : undefined;
-
-    if (!approval) return null;
-
-    approval.status = decision as ApprovalStatus;
-    approval.reviewedAt = now;
-    approval.reviewedBy = "CEO";
-    approval.reviewComment = body.comment;
-
-    // Release or stop whatever the approval was blocking.
-    for (const task of s.tasks) {
-      if (task.approvalId !== approval.id) continue;
-      task.updatedAt = now;
-      task.status = decision === "rejected" ? "FAILED" : "RUNNING";
-      if (decision !== "rejected") task.blockedReason = undefined;
-    }
-
-    let report = approval.relatedReportId
-      ? s.reports.find((r) => r.id === approval.relatedReportId)
-      : undefined;
-    if (report) {
-      report.status =
-        decision === "approved"
-          ? ("APPROVED" as ReportStatus)
-          : decision === "rejected"
-            ? ("REJECTED" as ReportStatus)
-            : ("REVISION_REQUIRED" as ReportStatus);
-      report.reviewedAt = now;
-      report.reviewedBy = "CEO";
-      report.reviewComment = body.comment;
-      report.updatedAt = now;
-    } else {
-      report = undefined;
-    }
-
-    for (const notification of s.notifications) {
-      if (notification.relatedApprovalId === approval.id) notification.read = true;
-    }
-
-    s.activity = [
-      {
-        id: `act-${now.toString(36)}-d`,
-        kind:
-          decision === "approved"
-            ? "approval.approved"
-            : decision === "rejected"
-              ? "approval.rejected"
-              : "approval.revision_requested",
-        agentId: approval.requestedBy,
-        at: now,
-        message:
-          decision === "approved"
-            ? `CEO approved: ${approval.title}`
-            : decision === "rejected"
-              ? `CEO rejected: ${approval.title}`
-              : `CEO requested revision: ${approval.title}`,
-        detail: body.comment ?? approval.title,
-        severity: "important",
-      },
-      ...s.activity,
-    ];
-
-    // The run that stopped to ask, so it can be continued.
-    const waiting = s.runs.find(
-      (r) => r.approvalId === approval.id && r.status === "waiting_for_ceo",
-    );
-
-    return { approvalId: approval.id, runId: waiting?.id, report };
-  });
-
+  const resolved = applyDecision({ ...body, decision });
   if (!resolved) {
     return NextResponse.json({ error: "approval not found" }, { status: 404 });
   }
-
-  if (resolved.report) putReport(resolved.report);
 
   // Resuming can take a while, so the CEO is not kept waiting — but it must
   // still actually happen. This is the path that carries out the action the

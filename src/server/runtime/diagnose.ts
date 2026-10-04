@@ -1,6 +1,7 @@
 import "server-only";
 
 import { searchCapability } from "@/lib/ai";
+import { agentScopes, agentToken } from "@/server/vp/auth";
 import { listGeminiModels, modelSubstitutions, pickModel } from "@/lib/ai/gemini";
 import { getConfig } from "./config";
 
@@ -424,5 +425,60 @@ export async function diagnoseModel(): Promise<ModelDiagnosis> {
         : `次のモデルがこのキーでは利用できません: ${suggestions}。` +
           "実行時は自動で代替に切り替わりますが、GEMINI_MODEL / GEMINI_WORKER_MODEL を" +
           "更新しておくと余計な往復がなくなります。",
+  };
+}
+
+
+/* ── Who can reach the company ───────────────────────────────────────────── */
+
+export interface AccessDiagnosis {
+  /** Whether an outside agent has been given scoped access. */
+  agentConfigured: boolean;
+  agentScopes: string[];
+  /** True when the agent may release irreversible actions. */
+  canApprove: boolean;
+  /**
+   * The dashboard's own API routes have no server-side authentication: the
+   * sign-in is a flag in localStorage. Reported rather than left implicit,
+   * because /api/decisions releases real email.
+   */
+  dashboardApiOpen: boolean;
+  verdict: string;
+}
+
+export function diagnoseAccess(): AccessDiagnosis {
+  const token = agentToken();
+  const scopes = token ? agentScopes() : [];
+  const canApprove = scopes.includes("approve");
+
+  const notes: string[] = [];
+  if (!token) {
+    notes.push(
+      "外部エージェント用のアクセスは未設定です（FRIDAY_AGENT_TOKEN）。設定するまで /api/mcp は使えません。",
+    );
+  } else if (token.length < 32) {
+    notes.push("FRIDAY_AGENT_TOKEN が32文字未満のため拒否されます。");
+  } else {
+    notes.push(
+      `外部エージェントは ${scopes.join("・")} の権限で接続できます` +
+        (canApprove
+          ? "（承認の実行権限つき — 取り消せない操作を代わりに実行できます）。"
+          : "（承認の実行は不可。承認はCEOが行います）。"),
+    );
+  }
+
+  notes.push(
+    "ダッシュボードのAPIルートにはサーバー側の認証がありません。" +
+      "URLを知っている相手は指示の投入や承認の実行ができます。" +
+      "ホスティング側のアクセス保護（Vercel の Deployment Protection など）で" +
+      "塞いでいるか確認してください。",
+  );
+
+  return {
+    agentConfigured: Boolean(token) && token.length >= 32,
+    agentScopes: scopes,
+    canApprove,
+    dashboardApiOpen: true,
+    verdict: notes.join(" "),
   };
 }

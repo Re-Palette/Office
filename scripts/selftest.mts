@@ -73,6 +73,8 @@ const { __clearRuntimeForTesting, getReport, putReport } = await import(
   "../src/server/report-store"
 );
 const { processSegment, uid } = await import("../src/server/runtime/uid");
+const { authorise } = await import("../src/server/vp/auth");
+const { VP_TOOLS, toolsFor } = await import("../src/server/vp/tools");
 const { SEED_REPORTS } = await import("../src/lib/company/report-seed");
 
 type Block = Record<string, unknown>;
@@ -565,6 +567,179 @@ check("the job is recorded so it cannot run twice", readState().jobs.some((j) =>
 
 const repeat = await runDailyNoteDraft();
 check("a second run the same day is a no-op", repeat.status === "skipped", repeat.status);
+
+// ── The vice-president's access ────────────────────────────────────────────
+//
+// An outside agent now holds keys to the company. The two things that must
+// not be wrong: the token is actually checked, and operate scope cannot
+// release an irreversible action.
+console.log("\n=== Vice-president access ===\n");
+
+const TOKEN = "f".repeat(48);
+function vpReq(token?: string, actor?: string): Request {
+  const headers: Record<string, string> = {};
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (actor) headers["x-friday-actor"] = actor;
+  return new Request("https://example.com/api/mcp", { method: "POST", headers });
+}
+
+// Nothing is reachable until access is deliberately configured.
+const unset = envScope({ FRIDAY_AGENT_TOKEN: undefined }, () => authorise(vpReq(TOKEN)));
+check("with no token configured, nothing is granted", unset.ok === false);
+check("and it says what to set", !unset.ok && unset.reason.includes("FRIDAY_AGENT_TOKEN"));
+
+// A guessable token is not a lock, and pretending otherwise is worse than
+// refusing: the whole company sits behind this one string.
+const short = envScope({ FRIDAY_AGENT_TOKEN: "hunter2" }, () => authorise(vpReq("hunter2")));
+check("a short token is refused even when it matches", short.ok === false);
+check("and says how long it must be", !short.ok && short.reason.includes("32"));
+
+const good = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () => authorise(vpReq(TOKEN)));
+check("a correct token is granted", good.ok === true);
+check("read and operate by default", good.ok && good.scopes.join(",") === "read,operate");
+// The default must not include the scope that reaches outside.
+check("but never approval by default", good.ok && !good.scopes.includes("approve"));
+
+for (const [label, presented] of [
+  ["a wrong token", "g".repeat(48)],
+  ["a truncated token", "f".repeat(47)],
+  ["an empty token", ""],
+] as const) {
+  const denied = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () => authorise(vpReq(presented || undefined)));
+  check(`${label} is refused`, denied.ok === false, denied.ok ? "granted" : String(denied.status));
+}
+
+const noHeader = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () =>
+  authorise(new Request("https://example.com/api/mcp", { method: "POST" })),
+);
+check("a missing Authorization header is a 401", !noHeader.ok && noHeader.status === 401);
+
+// Scopes decide the tool list, so a token without approve never even sees
+// the tool — it cannot be called by a model that was not offered it.
+const readOnly = envScope(
+  { FRIDAY_AGENT_TOKEN: TOKEN, FRIDAY_AGENT_SCOPES: "read" },
+  () => authorise(vpReq(TOKEN)),
+);
+check("scopes can be narrowed to read", readOnly.ok && readOnly.scopes.join(",") === "read");
+
+const readTools = readOnly.ok ? toolsFor(readOnly).map((t) => t.name) : [];
+check("a read token sees the status tool", readTools.includes("company_status"));
+check("and cannot instruct the company", !readTools.includes("instruct_company"));
+check("and cannot decide an approval", !readTools.includes("decide_approval"));
+
+const operateTools = good.ok ? toolsFor(good).map((t) => t.name) : [];
+check("an operate token can instruct", operateTools.includes("instruct_company"));
+check("and run a scheduled job", operateTools.includes("run_job"));
+// The whole point of the separation.
+check("and still cannot decide an approval", !operateTools.includes("decide_approval"));
+
+const full = envScope(
+  { FRIDAY_AGENT_TOKEN: TOKEN, FRIDAY_AGENT_SCOPES: "read,operate,approve" },
+  () => authorise(vpReq(TOKEN)),
+);
+check("approval is available only when granted explicitly", full.ok && toolsFor(full).map((t) => t.name).includes("decide_approval"));
+
+// Nonsense in the scope list must not silently become more access.
+const garbage = envScope(
+  { FRIDAY_AGENT_TOKEN: TOKEN, FRIDAY_AGENT_SCOPES: "admin,root,*" },
+  () => authorise(vpReq(TOKEN)),
+);
+check("unrecognised scopes fall back to the safe default", garbage.ok && !garbage.scopes.includes("approve"), garbage.ok ? garbage.scopes.join(",") : "denied");
+
+// The actor name travels into the activity feed, so it is bounded.
+const actorName = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () => authorise(vpReq(TOKEN, "x".repeat(400))));
+check("the caller's name cannot flood the feed", actorName.ok && actorName.actor.length <= 60, actorName.ok ? String(actorName.actor.length) : "denied");
+
+/* The tools themselves, against the real company state. */
+const vpGrant = { ok: true as const, actor: "FRIDAY（副社長）", scopes: ["read", "operate", "approve"] as const };
+const byName = (n: string) => VP_TOOLS.find((t) => t.name === n)!;
+
+const snapshot = (await byName("company_status").run({}, vpGrant as never)) as Record<string, never>;
+const snap = snapshot as unknown as {
+  canWork: boolean;
+  needsCeo: { id: string; impact: string }[];
+  tasks: { active: number; total: number };
+  schedule: { morningBriefing: string };
+};
+check("status answers whether the company can work at all", typeof snap.canWork === "boolean");
+check("and counts the company's tasks", snap.tasks.total > 0, String(snap.tasks.total));
+check("and reports the schedule in effect", snap.schedule.morningBriefing.includes(":"));
+
+// The approval list must carry the impact and the exact payload, because the
+// agent reads those to the CEO — a summary is how consent gets manufactured.
+const approvals = (await byName("list_approvals").run({}, vpGrant as never)) as {
+  id: string;
+  impact: string;
+  payload: unknown;
+}[];
+check("the approval list reaches the agent", Array.isArray(approvals));
+check(
+  "each approval carries what would happen on approval",
+  approvals.every((a) => typeof a.impact === "string" && a.impact.length > 0),
+);
+
+// The payload is the text that would actually go out. Constructed rather
+// than hoped for, because this is the field that stops an agent from
+// paraphrasing an email into consent the CEO never gave.
+mutate((st) => {
+  st.approvals = [
+    {
+      id: "ap-vp-test",
+      title: "外部送信の承認",
+      summary: "提携候補へ初回接触メールを送ります。",
+      impact: "承認した瞬間に送信されます。取り消せません。",
+      kind: "email",
+      risk: "high",
+      priority: "urgent",
+      status: "pending",
+      requestedBy: "outreach_ai",
+      requestedAt: Date.now(),
+    },
+    ...st.approvals,
+  ];
+  st.runs = [
+    {
+      id: "run-vp-test",
+      agentId: "outreach_ai",
+      objective: "提携候補へ接触する",
+      status: "waiting_for_ceo",
+      startedAt: Date.now(),
+      steps: 2,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      toolCalls: [],
+      approvalId: "ap-vp-test",
+      pendingAction: {
+        tool: "send_email",
+        input: { to: ["partner@example.com"], subject: "ご提案", body: "本文そのまま" },
+      },
+    },
+    ...st.runs,
+  ];
+});
+
+const withPayload = (await byName("list_approvals").run({}, vpGrant as never)) as {
+  id: string;
+  payload: { body?: string } | null;
+}[];
+const queued = withPayload.find((a) => a.id === "ap-vp-test");
+check("a queued action's exact payload reaches the agent", queued?.payload?.body === "本文そのまま", JSON.stringify(queued?.payload));
+
+// An approval with no queued action reports none rather than inventing one.
+const seeded = withPayload.find((a) => a.id !== "ap-vp-test");
+check("and an approval without one says so", seeded ? seeded.payload === null : true);
+
+// Every tool must declare a scope, or it would default to being offered.
+check("every tool declares a scope", VP_TOOLS.every((t) => ["read", "operate", "approve"].includes(t.scope)));
+check("only one tool can release an action", VP_TOOLS.filter((t) => t.scope === "approve").length === 1);
+check(
+  "every tool has a schema the protocol can advertise",
+  VP_TOOLS.every((t) => t.schema && (t.schema as { type?: string }).type === "object"),
+);
+check(
+  "and a description long enough to pick it by",
+  VP_TOOLS.every((t) => t.description.length > 60),
+  String(Math.min(...VP_TOOLS.map((t) => t.description.length))),
+);
 
 // ── Opening a report's PDF from a different instance ──────────────────────
 //

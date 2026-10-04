@@ -256,6 +256,13 @@ export interface Diagnosis {
     keyKind: string;
     verdict: string;
   };
+  access: {
+    agentConfigured: boolean;
+    agentScopes: string[];
+    canApprove: boolean;
+    dashboardApiOpen: boolean;
+    verdict: string;
+  };
 }
 
 /**

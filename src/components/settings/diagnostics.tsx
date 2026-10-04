@@ -154,6 +154,19 @@ export function Diagnostics() {
             detail={data.supabase.verdict}
           />
 
+          {/* Who can reach the company from outside. Shown next to the rest
+              because an open API is a configuration fact, not a footnote. */}
+          <Row
+            status={data.access.agentConfigured ? (data.access.canApprove ? "warn" : "ok") : "warn"}
+            label="外部エージェント"
+            value={
+              data.access.agentConfigured
+                ? data.access.agentScopes.join(" / ")
+                : "未設定"
+            }
+            detail={data.access.verdict}
+          />
+
           <p className="px-5 py-3 text-3xs leading-relaxed text-ink-ghost">
             ここが全部緑なら、AI社員は動きます。
             アクティビティやRunsに赤いエラーが残っている場合は、
