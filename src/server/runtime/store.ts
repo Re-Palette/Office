@@ -101,6 +101,15 @@ export interface WorkState {
   /** Recurring jobs, keyed by the JST day they last ran for. */
   jobs: JobRun[];
   /**
+   * The key the CEO's own agent connects with.
+   *
+   * Kept here rather than only in an environment variable for two reasons:
+   * the CEO does not use a terminal, and a hosting dashboard will not show a
+   * saved secret again — so a value set that way is unrecoverable the moment
+   * it is needed a second time. Minted in the app, shown once, replaceable.
+   */
+  agentAccess?: { token: string; createdAt: number; label: string };
+  /**
    * How many tasks the company has advanced on its own today, by JST day.
    *
    * Persisted rather than held in memory because on serverless each instance

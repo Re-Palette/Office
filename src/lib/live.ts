@@ -289,3 +289,47 @@ export async function fetchDiagnosis(): Promise<Diagnosis> {
   if (!response.ok) throw new Error(`診断に失敗しました (${response.status})`);
   return (await response.json()) as Diagnosis;
 }
+
+
+/* ── The CEO's own agent ──────────────────────────────────────────────────── */
+
+export interface AgentAccess {
+  configured: boolean;
+  source: "env" | "app" | "none";
+  scopes: string[];
+  createdAt: number | null;
+  label: string | null;
+}
+
+export async function fetchAgentAccess(): Promise<AgentAccess> {
+  const response = await fetch("/api/agent-token", { cache: "no-store" });
+  if (!response.ok) throw new Error(`確認に失敗しました (${response.status})`);
+  return (await response.json()) as AgentAccess;
+}
+
+/**
+ * Mints the key. The value comes back exactly once, so the caller must show
+ * it before anything else can go wrong — there is no second chance to read it.
+ */
+export async function mintAgentToken(
+  current?: string,
+): Promise<{ token: string; scopes: string[]; replaced: boolean }> {
+  const response = await fetch("/api/agent-token", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(current ? { authorization: `Bearer ${current}` } : {}),
+    },
+    body: JSON.stringify({}),
+  });
+  const body = (await response.json()) as {
+    token?: string;
+    scopes?: string[];
+    replaced?: boolean;
+    error?: string;
+  };
+  if (!response.ok || !body.token) {
+    throw new Error(body.error ?? `発行に失敗しました (${response.status})`);
+  }
+  return { token: body.token, scopes: body.scopes ?? [], replaced: Boolean(body.replaced) };
+}

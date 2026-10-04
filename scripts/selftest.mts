@@ -76,7 +76,7 @@ const { __clearRuntimeForTesting, getReport, putReport } = await import(
   "../src/server/report-store"
 );
 const { processSegment, uid } = await import("../src/server/runtime/uid");
-const { authorise } = await import("../src/server/vp/auth");
+const { agentTokenSource, authorise } = await import("../src/server/vp/auth");
 const { VP_TOOLS, toolsFor } = await import("../src/server/vp/tools");
 const { SEED_REPORTS } = await import("../src/lib/company/report-seed");
 
@@ -652,6 +652,43 @@ check("unrecognised scopes fall back to the safe default", garbage.ok && !garbag
 // The actor name travels into the activity feed, so it is bounded.
 const actorName = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () => authorise(vpReq(TOKEN, "x".repeat(400))));
 check("the caller's name cannot flood the feed", actorName.ok && actorName.actor.length <= 60, actorName.ok ? String(actorName.actor.length) : "denied");
+
+// Minting the key in the app, because the CEO does not use a terminal — and
+// because a hosting dashboard never shows a saved secret again, so a value
+// set that way is unrecoverable the moment it is needed twice.
+mutate((st) => {
+  st.agentAccess = undefined;
+});
+
+check("with nothing set up, no source is reported", envScope({ FRIDAY_AGENT_TOKEN: undefined }, () => agentTokenSource()) === "none");
+
+const minted = "a".repeat(64);
+mutate((st) => {
+  st.agentAccess = { token: minted, createdAt: Date.now(), label: "FRIDAY（副社長）" };
+});
+
+const appToken = envScope({ FRIDAY_AGENT_TOKEN: undefined }, () => authorise(vpReq(minted)));
+check("a key minted in the app authenticates", appToken.ok === true);
+check("and is reported as coming from the app", envScope({ FRIDAY_AGENT_TOKEN: undefined }, () => agentTokenSource()) === "app");
+check(
+  "a wrong key is still refused",
+  envScope({ FRIDAY_AGENT_TOKEN: undefined }, () => authorise(vpReq("b".repeat(64)))).ok === false,
+);
+
+// Someone who deliberately sets an environment variable means it, so that
+// wins — otherwise a stored key could quietly override a deployment's own.
+const envWins = envScope({ FRIDAY_AGENT_TOKEN: TOKEN }, () => ({
+  source: agentTokenSource(),
+  storedRejected: authorise(vpReq(minted)).ok,
+  envAccepted: authorise(vpReq(TOKEN)).ok,
+}));
+check("an environment variable takes precedence", envWins.source === "env");
+check("and the stored key stops working while it is set", envWins.storedRejected === false);
+check("while the environment one is accepted", envWins.envAccepted === true);
+
+mutate((st) => {
+  st.agentAccess = undefined;
+});
 
 /* The tools themselves, against the real company state. */
 const vpGrant = { ok: true as const, actor: "FRIDAY（副社長）", scopes: ["read", "operate", "approve"] as const };

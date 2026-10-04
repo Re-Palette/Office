@@ -2,6 +2,7 @@ import "server-only";
 
 import { timingSafeEqual } from "node:crypto";
 import { cleanSecret } from "@/server/runtime/config";
+import { read } from "@/server/runtime/store";
 
 /**
  * Who is allowed to operate the company from outside, and how far.
@@ -36,9 +37,23 @@ export interface Denial {
   reason: string;
 }
 
-/** Configured token, or "" when no agent access has been set up. */
+/**
+ * The token agent access is checked against, or "" when none is set up.
+ *
+ * An environment variable wins when present, because someone who sets one
+ * means it; otherwise the one minted in the app is used. Callers must have
+ * the state loaded, which every route reaching this does.
+ */
 export function agentToken(): string {
-  return cleanSecret(process.env.FRIDAY_AGENT_TOKEN);
+  const fromEnv = cleanSecret(process.env.FRIDAY_AGENT_TOKEN);
+  if (fromEnv) return fromEnv;
+  return read((s) => s.agentAccess?.token ?? "");
+}
+
+/** Where the active token came from, for the setup screen. */
+export function agentTokenSource(): "env" | "app" | "none" {
+  if (cleanSecret(process.env.FRIDAY_AGENT_TOKEN)) return "env";
+  return read((s) => (s.agentAccess?.token ? "app" : "none"));
 }
 
 export function agentScopes(): Scope[] {

@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Integrations } from "@/components/settings/integrations";
 import { LiveAgents } from "@/components/settings/live-agents";
 import { Diagnostics } from "@/components/settings/diagnostics";
+import { AgentAccessPanel } from "@/components/settings/agent-access";
 
 const PHASES = [
   { id: 1, label: "UI / UX", done: true },
@@ -86,6 +87,7 @@ export default function SettingsPage() {
       />
 
       <LiveAgents />
+      <AgentAccessPanel />
       <Diagnostics />
 
       <Integrations />
