@@ -68,6 +68,9 @@ const { getConfig } = await import("../src/server/runtime/config");
 const { markExhausted, pacificDay, quota, quotaVerdict, reserve } = await import(
   "../src/lib/ai/budget"
 );
+const { advanceWork, autonomySettings, autonomyStatus, pickTasks } = await import(
+  "../src/server/autonomy"
+);
 const { renderReportPdf } = await import("../src/server/report-pdf");
 const { __clearRuntimeForTesting, getReport, putReport } = await import(
   "../src/server/report-store"
@@ -903,13 +906,172 @@ check("the summary is the rest", minutes.summary.includes("前進"));
 
 // The dispatcher is what every trigger calls, so a late ring still works.
 const due = await runDueJobs();
-check("the dispatcher reports on every job", due.length === jobs().length, `${due.length}/${jobs().length}`);
+// The scheduled jobs, plus the company's own work — which is reported in the
+// same list so one trigger drives everything.
 check(
-  "and never runs one twice in a day",
-  due.every((r) => r.status === "skipped" || r.status === "not_due"),
+  "the dispatcher reports on every scheduled job",
+  jobs().every((j) => due.some((r) => r.id === j.id)),
+  due.map((r) => r.id).join(" "),
+);
+check("and on the autonomous work", due.some((r) => r.id === "autonomous-work"));
+check(
+  "and never runs a scheduled job twice in a day",
+  due
+    .filter((r) => r.id !== "autonomous-work")
+    .every((r) => r.status === "skipped" || r.status === "not_due"),
   due.map((r) => `${r.id}:${r.status}`).join(" "),
 );
 
+
+// ── Working with nobody watching ───────────────────────────────────────────
+//
+// The board had forty tasks on it, each assigned to an employee, and nothing
+// ever invoked those employees. The hard part is not starting that work — it
+// is stopping, because on a free key one agent turn is one request and forty
+// tasks unattended would spend the day before breakfast.
+console.log("\n=== Autonomous work ===\n");
+
+const nowMs = Date.now();
+const task = (over: Partial<(typeof readState)["prototype"]> | Record<string, unknown>) =>
+  ({
+    id: "x",
+    title: "t",
+    description: "d",
+    status: "RUNNING",
+    priority: "normal",
+    assignedAgent: "market_ai",
+    department: "research",
+    createdAt: nowMs - 86_400_000,
+    updatedAt: nowMs - 86_400_000,
+    subTasks: [],
+    progress: 10,
+    ...over,
+  }) as never;
+
+const pool = [
+  task({ id: "t-old", updatedAt: nowMs - 86_400_000 }),
+  task({ id: "t-fresh", updatedAt: nowMs - 60_000 }),
+  task({ id: "t-blocked", blockedReason: "承認待ち" }),
+  task({ id: "t-awaiting", approvalId: "ap-1" }),
+  task({ id: "t-done", status: "COMPLETED" }),
+  task({ id: "t-failed", status: "FAILED" }),
+  task({ id: "t-nobody", assignedAgent: "does_not_exist" }),
+  task({ id: "t-critical", priority: "critical", updatedAt: nowMs - 7_200_000 }),
+  task({ id: "t-overdue", deadline: nowMs - 3_600_000, updatedAt: nowMs - 7_200_000 }),
+];
+
+const queueOrder = pickTasks(pool, nowMs, 90 * 60_000, 10).map((t) => t.id);
+
+// An overdue task outranks a merely important one, which outranks age.
+check("the overdue task is picked first", queueOrder[0] === "t-overdue", queueOrder.join(" "));
+check("then the critical one", queueOrder[1] === "t-critical", queueOrder.join(" "));
+check("a long-untouched task is eligible", queueOrder.includes("t-old"));
+
+// Each exclusion is a request not spent.
+check("a task touched minutes ago is left alone", !queueOrder.includes("t-fresh"));
+// Running its agent again would reproduce the same halt and pay for it.
+check("a task waiting on the CEO is never picked up", !queueOrder.includes("t-awaiting"));
+check("nor one its own agent said it is stuck on", !queueOrder.includes("t-blocked"));
+check("finished work is not redone", !queueOrder.includes("t-done") && !queueOrder.includes("t-failed"));
+check("a task assigned to nobody is skipped", !queueOrder.includes("t-nobody"));
+
+check("the batch size is respected", pickTasks(pool, nowMs, 90 * 60_000, 2).length === 2);
+// Forcing is for "do it now", and must not also mean "ignore the ceilings".
+check("forcing clears only the cooldown", pickTasks(pool, nowMs, 0, 10).some((t) => t.id === "t-fresh"));
+
+/* The ceilings, against the real engine. */
+
+check("autonomy is on by default", envScope({ FRIDAY_AUTONOMY: undefined }, () => autonomySettings().enabled));
+check("and can be turned off", !envScope({ FRIDAY_AUTONOMY: "false" }, () => autonomySettings().enabled));
+check(
+  "the allowance share leaves room for the CEO",
+  envScope({ FRIDAY_AUTONOMY_BUDGET_SHARE: undefined }, () => autonomySettings().budgetShare) < 1,
+);
+check(
+  "a nonsensical share falls back rather than becoming unlimited",
+  envScope({ FRIDAY_AUTONOMY_BUDGET_SHARE: "9" }, () => autonomySettings().budgetShare) <= 1,
+);
+
+const off = await envScope({ FRIDAY_AUTONOMY: "false" }, () => advanceWork());
+check("disabled means nothing runs", off.status === "off", off.status);
+check("and it says so rather than looking idle", off.detail.includes("FRIDAY_AUTONOMY"));
+
+// The reserve: autonomous work stops at a fraction of the day, so the CEO's
+// own instructions and the scheduled jobs are never queued behind it.
+mutate((st) => {
+  st.quota = { day: pacificDay(), requests: 400, exhausted: false, recent: [] };
+  st.autonomy = undefined;
+});
+const starved = await envScope(
+  { FRIDAY_DAILY_REQUEST_BUDGET: "500", FRIDAY_AUTONOMY_BUDGET_SHARE: "0.6", FRIDAY_FREE_TIER: "true", GEMINI_API_KEY: "AIza-x", FRIDAY_TEST_TRANSPORT: "1" },
+  () => advanceWork(),
+);
+check("past its share of the day, autonomous work stops", starved.status === "no_budget", starved.status);
+check("and says what it is leaving for the CEO", starved.detail.includes("CEOの指示"));
+
+// The daily ceiling, which is claimed before the work so two ticks arriving
+// together cannot both believe there is room for a full batch.
+mutate((st) => {
+  st.quota = undefined;
+  st.autonomy = { day: new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10), advanced: 12 };
+});
+const capped = await envScope({ FRIDAY_MAX_TASKS_PER_DAY: "12" }, () => advanceWork());
+check("the daily ceiling stops the work", capped.status === "throttled", capped.status);
+check("and names the limit", capped.detail.includes("12"));
+
+// A new JST day is a new allowance.
+mutate((st) => {
+  if (st.autonomy) st.autonomy.day = "2000-01-01";
+});
+const fresh = autonomyStatus();
+check("a new day resets the count", fresh.advancedToday === 0, String(fresh.advancedToday));
+
+/* End to end: an employee actually advances its own task. */
+mutate((st) => {
+  st.autonomy = undefined;
+  st.quota = undefined;
+  // Only this one, so the assertion is about the engine rather than about
+  // which of the company's real tasks happens to sort first.
+  st.tasks = [
+    task({
+      id: "t-autonomy",
+      title: "美容業界の最新動向を1枚にまとめる",
+      description: "一次情報を読んで、CEOが3分で読める形にする。",
+      assignedAgent: "market_ai",
+      updatedAt: Date.now() - 86_400_000,
+    }),
+  ];
+});
+cursor["Market Research AI"] = 0;
+
+const worked = await envScope({ FRIDAY_TASKS_PER_TICK: "1" }, () => advanceWork());
+check("the company works unprompted", worked.status === "worked", `${worked.status}: ${worked.detail}`);
+check("exactly one task per tick, as configured", worked.advanced.length === 1, String(worked.advanced.length));
+check("the assignee is the one who did it", worked.advanced[0]?.agent === "Market Research AI", worked.advanced[0]?.agent);
+check(
+  "and the CEO can see it happened",
+  readState().activity.some((e) => e.message.includes("自分の担当タスクに着手")),
+);
+// Touched either way, so a failed run is not retried on the very next tick
+// at the cost of the same requests.
+check(
+  "the task is marked as touched",
+  (readState().tasks.find((t) => t.id === "t-autonomy")?.updatedAt ?? 0) > Date.now() - 60_000,
+);
+check("and the day's count went up", autonomyStatus().advancedToday === 1, String(autonomyStatus().advancedToday));
+
+// Immediately after, the same task is in cooldown — so a tight polling loop
+// cannot spend the allowance on one task over and over.
+const again = await advanceWork();
+check(
+  "a tick straight after does not redo the same task",
+  again.status === "idle" && again.advanced.length === 0,
+  `${again.status}: ${again.detail}`,
+);
+
+mutate((st) => {
+  st.autonomy = undefined;
+});
 
 // ── The schedule is a real setting ─────────────────────────────────────────
 //

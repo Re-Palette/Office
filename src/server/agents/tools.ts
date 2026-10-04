@@ -169,6 +169,30 @@ const COMPANY_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "update_task",
+    description:
+      "Record how far along a task you own is, and what you just did. Use this when you have moved a task forward but it is not finished — the CEO's board reads these, so say what actually changed rather than that you are working on it. Report the progress you believe is true; it is not inferred for you.",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        progress: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100,
+          description: "現時点の進捗（%）。根拠のない数字を書かない。",
+        },
+        note: { type: "string", description: "今回進めた内容（日本語・1〜2文）" },
+        blockedReason: {
+          type: "string",
+          description: "進められない理由がある場合だけ。解消したら空文字で消える。",
+        },
+      },
+      required: ["taskId", "progress", "note"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "complete_task",
     description: "Mark a task you own as completed, recording what the outcome was.",
     parameters: {
@@ -747,6 +771,42 @@ export async function executeCompanyTool(
           ];
         });
         return { content: `タスクを作成しました（id: ${task.id}, 担当: ${agent.role}）。` };
+      }
+
+      case "update_task": {
+        const taskId = String(input.taskId ?? "");
+        const note = String(input.note ?? "").trim();
+        const progress = Math.max(0, Math.min(100, Number(input.progress ?? 0)));
+        const blocked = String(input.blockedReason ?? "").trim();
+
+        const updated = mutate((s) => {
+          const task = s.tasks.find((t) => t.id === taskId);
+          if (!task) return false;
+          task.progress = progress;
+          task.updatedAt = now;
+          // The employee says whether it is stuck; nothing here guesses.
+          task.blockedReason = blocked || undefined;
+          if (task.status === "QUEUED" || task.status === "PLANNING") task.status = "RUNNING";
+          if (blocked) task.status = "WAITING";
+          s.activity = [
+            {
+              id: uid("act"),
+              kind: "agent.completed",
+              agentId: ctx.agentId,
+              at: now,
+              message: blocked ? "タスクが止まっています" : `タスクを前進（${progress}%）`,
+              detail: blocked || note || task.title,
+              taskId: task.id,
+              severity: blocked ? "important" : undefined,
+            },
+            ...s.activity,
+          ];
+          return true;
+        });
+
+        return updated
+          ? { content: `進捗を記録しました（${progress}%）。` }
+          : { content: `Unknown taskId "${taskId}".`, isError: true };
       }
 
       case "complete_task": {

@@ -71,6 +71,43 @@ export function LiveAgents() {
             />
           </div>
 
+          {/* The company working unprompted is the thing a CEO most needs to
+              be able to see, and to switch off. */}
+          <div className="grid grid-cols-2 gap-px bg-hairline md:grid-cols-4">
+            <Cell
+              label="Autonomous work"
+              value={runtime?.autonomy?.enabled ? "有効" : "停止中"}
+              accent={Boolean(runtime?.autonomy?.enabled)}
+            />
+            <Cell
+              label="Advanced today"
+              value={
+                runtime?.autonomy
+                  ? `${runtime.autonomy.advancedToday} / ${runtime.autonomy.perDay}`
+                  : "—"
+              }
+            />
+            <Cell label="Per tick" value={String(runtime?.autonomy?.perTick ?? "—")} />
+            <Cell
+              label="Allowance share"
+              value={
+                runtime?.autonomy ? `${Math.round(runtime.autonomy.budgetShare * 100)}%` : "—"
+              }
+            />
+          </div>
+
+          {runtime?.autonomy?.enabled && (
+            <p className="px-5 py-3 text-2xs leading-relaxed text-ink-muted">
+              AI社員は、CEOが何も言わなくても自分の担当タスクを進めます。
+              1回につき {runtime.autonomy.perTick} 件、1日 {runtime.autonomy.perDay} 件まで。
+              同じタスクは {runtime.autonomy.cooldownMinutes} 分は再着手しません。
+              1日のAPI枠の {Math.round(runtime.autonomy.budgetShare * 100)}% を使った時点で
+              自律実行は止まり、残りはCEOの指示と定期ジョブのために確保されます。
+              外部に出ていくものは、これまでどおりCEOの承認で止まります。
+              止めるなら <code className="rounded bg-black/30 px-1 font-mono text-3xs">FRIDAY_AUTONOMY=false</code>。
+            </p>
+          )}
+
           {/* On a free key the allowance is the thing that actually stops the
               company, so it gets a line of its own rather than a number in a
               grid the CEO has to interpret. */}

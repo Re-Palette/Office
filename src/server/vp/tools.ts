@@ -415,6 +415,30 @@ export const VP_TOOLS: VpTool[] = [
     },
   },
 
+  {
+    name: "advance_work",
+    description:
+      "Have the company work on its own queued tasks now: each AI employee picks up what it has been assigned and actually moves it forward. Returns what was advanced. Bounded per call and per day, and it stops once autonomous work has used its share of the day's API allowance so the CEO's own instructions are never crowded out. Call this periodically to keep the company running in the background.",
+    scope: "operate",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => {
+      const { advanceWork } = await import("@/server/autonomy");
+      return advanceWork();
+    },
+  },
+
+  {
+    name: "work_settings",
+    description:
+      "How much autonomous work the company is allowed: whether it is on, how many tasks it has advanced today, and the ceilings. Use this to explain to the CEO why the company is or is not progressing by itself.",
+    scope: "read",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => {
+      const { autonomyStatus } = await import("@/server/autonomy");
+      return autonomyStatus();
+    },
+  },
+
   /* ── The one that reaches outside ───────────────────────────────────────── */
 
   {

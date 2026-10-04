@@ -216,6 +216,15 @@ export function mergeState(theirs: WorkState, ours: WorkState): WorkState {
     // most recent intent. `theirs` is the copy that came back from the
     // database, so it wins only when this instance never set one.
     schedule: ours.schedule ?? theirs.schedule,
+    // Same direction as the request counters: erring high is what keeps a
+    // ceiling a ceiling. Under-counting would let the company work past it.
+    autonomy:
+      theirs.autonomy && ours.autonomy && theirs.autonomy.day === ours.autonomy.day
+        ? {
+            day: ours.autonomy.day,
+            advanced: Math.max(theirs.autonomy.advanced, ours.autonomy.advanced),
+          }
+        : (ours.autonomy ?? theirs.autonomy),
     updatedAt: Date.now(),
   };
 }

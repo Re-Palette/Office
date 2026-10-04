@@ -552,6 +552,23 @@ export async function runDueJobs(): Promise<JobResult[]> {
   for (const job of [runMorningBriefing, runDailyNoteDraft, runDailyReport, runWeeklyBoard]) {
     results.push(await job());
   }
+
+  // Then the company's own work. After the scheduled jobs, not before: a
+  // briefing the CEO reads at 08:00 matters more than a task advancing, and
+  // they draw on the same allowance.
+  const { advanceWork } = await import("@/server/autonomy");
+  const work = await advanceWork();
+  results.push({
+    id: "autonomous-work",
+    status:
+      work.status === "worked"
+        ? "ran"
+        : work.status === "idle" || work.status === "off"
+          ? "skipped"
+          : "not_due",
+    detail: work.detail,
+  });
+
   return results;
 }
 

@@ -28,6 +28,15 @@ export interface RuntimeStatus {
   providerLabel?: string;
   /** Whether web_search / code_execution exist on this backend. */
   modelCapabilities?: { search: boolean; execute: boolean };
+  /** Whether the company works on its own, and how much it has done today. */
+  autonomy?: {
+    enabled: boolean;
+    advancedToday: number;
+    perDay: number;
+    perTick: number;
+    budgetShare: number;
+    cooldownMinutes: number;
+  };
   /** Today's requests against the free allowance. */
   quota?: {
     enabled: boolean;

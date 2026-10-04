@@ -130,6 +130,10 @@ export function buildSystem(agentId: string, canDelegate: boolean, canReport: bo
       ? "- note に出す記事は write_note_article に完成原稿を渡す。書き出す前に search_knowledge でブランドの文体と過去記事を確認し、同じ話を繰り返さない。"
       : "",
     "- 会社について書くときは [COMPANY] の記述だけを使う。そこにない会社情報は書かない。",
+    "- 自分の担当タスクを渡されたら、考えるだけで終わらせず、今日できるところまで実際に進める。",
+    "- 終わったら complete_task、途中なら update_task に進捗と「何をしたか」を記録する。",
+    "  進捗の数字は、根拠をもって自分で判断した値だけを書く。推測で埋めない。",
+    "- 進められない理由があるなら update_task の blockedReason に書く。黙って止まらない。",
     "- 事実・解釈・推奨を分けて書く。結論を先に述べる。",
     canDelegate
       ? "- 自分の担当外の作業は delegate で適切なAI社員へ委譲する。指示は単独で理解できる完結した内容にする。"

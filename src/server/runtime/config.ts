@@ -573,6 +573,8 @@ export interface PublicRuntimeStatus {
   modelCapabilities: { search: boolean; execute: boolean };
   /** Today's usage against the free allowance, for the dashboard. */
   quota: import("@/lib/ai/budget").QuotaStatus;
+  /** Whether the company works on its own, and how much it has done today. */
+  autonomy: import("@/server/autonomy").AutonomyStatus;
   model: string;
   workerModel: string;
   webTools: boolean;
@@ -621,6 +623,7 @@ export function publicStatus(
   storage: StorageStatus,
   capabilities: { search: boolean; execute: boolean },
   quota: import("@/lib/ai/budget").QuotaStatus,
+  autonomy: import("@/server/autonomy").AutonomyStatus,
 ): PublicRuntimeStatus {
   const c = getConfig();
   return {
@@ -629,6 +632,7 @@ export function publicStatus(
     providerLabel: providerLabel(c),
     modelCapabilities: capabilities,
     quota,
+    autonomy,
     model: c.model,
     workerModel: c.workerModel,
     webTools: c.webTools,

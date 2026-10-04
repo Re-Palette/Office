@@ -101,6 +101,14 @@ export interface WorkState {
   /** Recurring jobs, keyed by the JST day they last ran for. */
   jobs: JobRun[];
   /**
+   * How many tasks the company has advanced on its own today, by JST day.
+   *
+   * Persisted rather than held in memory because on serverless each instance
+   * would keep its own count, and the real total would be however many
+   * instances happened to start — which is the opposite of a ceiling.
+   */
+  autonomy?: { day: string; advanced: number };
+  /**
    * When the recurring work runs, as the CEO set it.
    *
    * Server state rather than a constant, because Settings offers these as
