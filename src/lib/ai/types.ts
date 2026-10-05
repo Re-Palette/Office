@@ -142,6 +142,15 @@ export class ProviderError extends Error {
     readonly status: number | null,
     /** True when trying again later is the right advice. */
     readonly retryable: boolean,
+    /**
+     * How long to wait before trying again, when the API said so.
+     *
+     * Gemini returns this on a per-minute 429 as RetryInfo.retryDelay, and it
+     * is the only authoritative answer: our own pacing counts what we sent,
+     * while this counts what the service actually charged us for. Honouring
+     * it turns a stopped run into a paused one.
+     */
+    readonly retryAfterMs: number | null = null,
   ) {
     super(message);
     this.name = "ProviderError";

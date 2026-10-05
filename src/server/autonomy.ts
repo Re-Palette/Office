@@ -224,6 +224,30 @@ export async function advanceWork(force = false): Promise<WorkResult> {
       canReport: false,
     });
 
+    // A quota ceiling or a network fault is not this task's turn being used
+    // up. The run did no work and spent nothing, so the slot it was charged
+    // is given back and the task is left untouched — otherwise one busy
+    // minute would quietly eat the day's task allowance and put each task it
+    // touched on a cooldown, and the company would look idle while having
+    // done nothing at all.
+    //
+    // The loop also stops: the ceiling applies to every agent equally, so
+    // the next task would walk into the same wall.
+    if (result.retryAfterMs !== undefined) {
+      mutate((s) => {
+        if (s.autonomy && s.autonomy.day === day && s.autonomy.advanced > 0) {
+          s.autonomy.advanced -= 1;
+        }
+      });
+      return {
+        status: "throttled",
+        detail:
+          `${result.error ?? "APIの一時的な上限"}` +
+          `（${Math.ceil(result.retryAfterMs / 1000)}秒後に自動で再開します）`,
+        advanced,
+      };
+    }
+
     advanced.push({
       taskId: task.id,
       agent: agent.role,

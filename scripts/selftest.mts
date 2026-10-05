@@ -52,6 +52,7 @@ const {
   __clearSubstitutionsForTesting,
   createGeminiProvider,
   describeGeminiError,
+  parseRetryDelay,
   foldChunks,
   modelSubstitutions,
   parseModelId,
@@ -65,9 +66,10 @@ const { createOpenAiProvider, fromCompletion, toOpenAiMessages } = await import(
   "../src/lib/ai/openai"
 );
 const { getConfig } = await import("../src/server/runtime/config");
-const { markExhausted, pacificDay, quota, quotaVerdict, reserve } = await import(
-  "../src/lib/ai/budget"
-);
+const { ProviderError } = await import("../src/lib/ai/types");
+const { markExhausted, notePerMinuteLimit, pacificDay, quota, quotaVerdict, reserve, reserveWithWait } =
+  await import("../src/lib/ai/budget");
+const { chainGuard, workRemaining } = await import("../src/server/runtime/tick");
 const { advanceWork, autonomySettings, autonomyStatus, pickTasks } = await import(
   "../src/server/autonomy"
 );
@@ -959,6 +961,72 @@ check(
   due.map((r) => `${r.id}:${r.status}`).join(" "),
 );
 
+// ── A stop that is not the job's fault ────────────────────────────────────
+//
+// The CEO reported that hitting the per-minute ceiling stopped the company
+// for the rest of the day, and he was right. A job claims its slot for the
+// day before it starts, so two triggers cannot both run it — and that claim
+// used to survive a rate-limit failure. One brush with a ceiling that clears
+// in under a minute therefore retired the job until tomorrow.
+//
+// A transient stop now leaves the slot claimable again and reports "waiting"
+// rather than "failed", because the work is still owed.
+const throwingStub = {
+  id: "stub" as const,
+  async send() {
+    throw new ProviderError(
+      "Gemini APIの1分あたりの回数上限に達しました。20秒待って自動で再実行します。",
+      429,
+      true,
+      20_000,
+    );
+  },
+} as never;
+
+mutate((st) => {
+  st.jobs = (st.jobs ?? []).filter((j) => j.id !== "daily-report");
+});
+__setClientForTesting(throwingStub);
+const limited = await runDailyReport(true);
+__setClientForTesting(stub);
+
+check("a rate-limited job is not called a failure", limited.status === "waiting", `${limited.status}: ${limited.detail}`);
+check("and says it resumes by itself", limited.detail.includes("自動で再開"), limited.detail.slice(0, 50));
+
+const heldRun = readState().jobs.find((j) => j.id === "daily-report");
+check("the attempt is recorded with a hold", typeof heldRun?.retryAt === "number", String(heldRun?.retryAt));
+check("and the hold is in the future", (heldRun?.retryAt ?? 0) > Date.now());
+
+// Still held: a trigger arriving during the hold must not pile on.
+check("a trigger during the hold is declined", (await runDailyReport()).status === "skipped");
+
+// Hold passed: the next trigger picks the work up, with nobody asking.
+mutate((st) => {
+  const run = (st.jobs ?? []).find((j) => j.id === "daily-report");
+  if (run) run.retryAt = Date.now() - 1;
+});
+cursor["COO (solo)"] = 0;
+const afterHold = await runDailyReport();
+check("once the hold passes the work resumes on its own", afterHold.status === "ran", `${afterHold.status}: ${afterHold.detail}`);
+check("and the hold is cleared so it cannot loop", readState().jobs.find((j) => j.id === "daily-report")?.retryAt === undefined);
+
+// A genuine failure is different: repeating it would just repeat the error,
+// so it keeps its slot and waits for a person.
+const brokenStub = {
+  id: "stub" as const,
+  async send() {
+    throw new ProviderError("GEMINI_API_KEY が無効です。", 400, false);
+  },
+} as never;
+mutate((st) => {
+  st.jobs = (st.jobs ?? []).filter((j) => j.id !== "daily-report");
+});
+__setClientForTesting(brokenStub);
+const hardFail = await runDailyReport(true);
+__setClientForTesting(stub);
+check("a real failure is still a failure", hardFail.status === "failed", hardFail.status);
+check("and keeps its slot rather than retrying all day", readState().jobs.find((j) => j.id === "daily-report")?.retryAt === undefined);
+
 
 // ── Working with nobody watching ───────────────────────────────────────────
 //
@@ -1105,6 +1173,136 @@ check(
   again.status === "idle" && again.advanced.length === 0,
   `${again.status}: ${again.detail}`,
 );
+
+// A rate limit is not the task's turn being spent. The run did no work, so
+// charging it a slot and a cooldown would quietly eat the day's allowance
+// and leave the company looking idle while having done nothing — which is
+// what the CEO saw. The slot is given back and the task left untouched, so
+// the next tick picks the same one up.
+mutate((st) => {
+  st.autonomy = undefined;
+  st.quota = undefined;
+  st.tasks = [
+    task({
+      id: "t-throttled",
+      title: "止まったときに取り返せるか",
+      description: "レート制限は作業の失敗ではない。",
+      assignedAgent: "market_ai",
+      updatedAt: Date.now() - 86_400_000,
+    }),
+  ];
+});
+const untouchedBefore = readState().tasks.find((t) => t.id === "t-throttled")?.updatedAt ?? 0;
+__setClientForTesting(throwingStub);
+const throttled = await envScope({ FRIDAY_TASKS_PER_TICK: "1" }, () => advanceWork());
+__setClientForTesting(stub);
+
+check("a rate-limited tick is not reported as work done", throttled.status === "throttled", `${throttled.status}: ${throttled.detail}`);
+check("and says it resumes by itself", throttled.detail.includes("自動で再開"), throttled.detail.slice(0, 48));
+check("the day's task allowance is given back", autonomyStatus().advancedToday === 0, String(autonomyStatus().advancedToday));
+check(
+  "and the task is left for the next tick, not put on cooldown",
+  (readState().tasks.find((t) => t.id === "t-throttled")?.updatedAt ?? 0) === untouchedBefore,
+);
+
+// Which means the retry actually happens, with nobody asking.
+cursor["Market Research AI"] = 0;
+const retried = await envScope({ FRIDAY_TASKS_PER_TICK: "1" }, () => advanceWork());
+check("so the next tick does the work", retried.status === "worked", `${retried.status}: ${retried.detail}`);
+check("on the same task", retried.advanced[0]?.taskId === "t-throttled", retried.advanced[0]?.taskId);
+
+// ── The background heartbeat ──────────────────────────────────────────────
+//
+// The dashboard used to be the clock: while a tab was open the company
+// worked, and closed it stopped. The platform cron fires twice a day on the
+// free plan, which is nowhere near a day's work, so an invocation now hands
+// over to a fresh one until the day's work is actually finished.
+//
+// A function that calls itself is the dangerous thing in this codebase, so
+// these checks are about the fences, not the work. Every one of them must be
+// a stop rather than a slowdown.
+console.log("\n=== Background heartbeat ===\n");
+
+const tickEnv = { GEMINI_API_KEY: "AIza-tick", CRON_SECRET: "s".repeat(40) };
+
+// Nothing owed is the normal way a day ends.
+mutate((st) => {
+  st.tick = undefined;
+  st.quota = undefined;
+  st.autonomy = { day: new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10), advanced: 99 };
+  st.jobs = jobs().map((j) => ({
+    id: j.id,
+    ranFor: new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10),
+    at: Date.now(),
+    ok: true,
+    detail: "done",
+  }));
+});
+const allDone = envScope({ ...tickEnv, FRIDAY_MAX_TASKS_PER_DAY: "12" }, () => workRemaining());
+check("with everything done, the chain ends", allDone.yes === false, allDone.why);
+check("and says so plainly", allDone.why.includes("すべて終わりました"), allDone.why);
+
+// A job held after a rate limit is work owed — that hold clearing is the
+// entire reason to come back.
+mutate((st) => {
+  const run = (st.jobs ?? [])[0];
+  if (run) run.retryAt = Date.now() + 1_000;
+});
+const owed = envScope({ ...tickEnv, FRIDAY_MAX_TASKS_PER_DAY: "12" }, () => workRemaining());
+check("a held job counts as work still owed", owed.yes === true, owed.why);
+
+// The day's allowance is a hard stop, whatever else is pending.
+mutate((st) => {
+  st.quota = { day: pacificDay(), requests: 0, exhausted: true, recent: [] };
+});
+const spent = envScope(tickEnv, () => workRemaining());
+check("an exhausted allowance ends the chain", spent.yes === false, spent.why);
+mutate((st) => {
+  st.quota = undefined;
+});
+
+// Fence 1: no shared secret, no chain — otherwise the endpoint could be
+// driven by anybody.
+mutate((st) => {
+  st.tick = undefined;
+});
+const noSecret = envScope({ GEMINI_API_KEY: "AIza-tick", CRON_SECRET: undefined }, () => chainGuard());
+check("without CRON_SECRET nothing chains", noSecret.ok === false, noSecret.why);
+check("and the reason tells the CEO what to set", noSecret.why.includes("CRON_SECRET"));
+
+// Fence 2: the cap binds, and is counted across instances rather than in
+// memory — each link is a different machine, so an in-process counter would
+// reset on every hop and never bind at all.
+mutate((st) => {
+  st.tick = { day: pacificDay(), chains: 40, lastAt: 0 };
+});
+const capReached = envScope(tickEnv, () => chainGuard());
+check("the daily chain cap is a hard stop", capReached.ok === false, capReached.why);
+check("and names the cap", capReached.why.includes("40"));
+
+// Fence 3: a minimum gap, so a failure that looks like progress cannot
+// become a tight loop.
+mutate((st) => {
+  st.tick = { day: pacificDay(), chains: 1, lastAt: Date.now() };
+});
+const tooSoon = envScope(tickEnv, () => chainGuard());
+check("a link fired just now is not fired again", tooSoon.ok === false, tooSoon.why);
+
+// And in the ordinary case it hands over, booking its place as it goes.
+mutate((st) => {
+  st.tick = { day: pacificDay(), chains: 3, lastAt: Date.now() - 60_000 };
+});
+const handover = envScope(tickEnv, () => chainGuard());
+check("otherwise the work is handed over", handover.ok === true, handover.why);
+check("and the link is counted before it fires", readState().tick?.chains === 4, String(readState().tick?.chains));
+
+// A new Pacific day is a new chain allowance, like the request budget it is
+// bounded by.
+mutate((st) => {
+  st.tick = { day: "2000-01-01", chains: 40, lastAt: 0 };
+});
+const newDay = envScope(tickEnv, () => chainGuard());
+check("a new day restores the chain allowance", newDay.ok === true, newDay.why);
 
 mutate((st) => {
   st.autonomy = undefined;
@@ -1635,16 +1833,39 @@ invalidate();
 // ── What a failed API call tells the CEO ───────────────────────────────────
 //
 // On a free-tier key the quota error is the one that will actually happen, and
-// it must not read like a bug — nor trigger a retry, which would either fail
-// again instantly or burn the next window.
+// it must not read like a bug. The two kinds of 429 then part company: the
+// per-minute ceiling clears on its own and is waited out, while the daily one
+// has nothing to wait for and stops the company until the quota rolls over.
+// Treating both as fatal is what made one busy minute retire a job for a day.
 console.log("\n=== API errors ===\n");
 
 const perMinute = describeGeminiError(
   429,
   '{"error":{"code":429,"message":"Quota exceeded for quota metric \'Generate requests per minute\'","status":"RESOURCE_EXHAUSTED"}}',
 );
-check("a rate limit says to wait, not that it broke", perMinute.message.includes("レート制限"), perMinute.message.slice(0, 30));
-check("and is never retried automatically", perMinute.retryable === false);
+check("a rate limit says to wait, not that it broke", perMinute.message.includes("1分あたり"), perMinute.message.slice(0, 30));
+check("and it is retried automatically", perMinute.retryable === true);
+check("and says it will resume by itself", perMinute.message.includes("自動で再実行"));
+check("and carries a wait even when the service names none", (perMinute.retryAfterMs ?? 0) > 0, String(perMinute.retryAfterMs));
+
+// The service's own RetryInfo beats any guess: our pacing counts what this
+// company sent, while the service counts everything the key was charged for.
+const withDelay = describeGeminiError(
+  429,
+  '{"error":{"code":429,"message":"Quota exceeded for quota metric \'Generate requests per minute\'","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"41s"}]}}',
+);
+check("the service's own retry delay is honoured", withDelay.retryAfterMs === 41_250, String(withDelay.retryAfterMs));
+check("and it is reported in seconds", withDelay.message.includes("42秒"), withDelay.message.slice(0, 40));
+check("a fractional delay parses", parseRetryDelay('{"retryDelay":"1.5s"}') === 1_750, String(parseRetryDelay('{"retryDelay":"1.5s"}')));
+check("an absurd delay is capped", parseRetryDelay('{"retryDelay":"99999s"}') === 120_000);
+check("no delay at all reads as none", parseRetryDelay('{"error":{}}') === null);
+// "per day" wins over the per-minute reading even when both could match,
+// because waiting out a minute for an exhausted day is a wasted request.
+const bothKinds = describeGeminiError(
+  429,
+  '{"error":{"message":"Quota exceeded for metric requests per day","details":[{"retryDelay":"30s"}]}}',
+);
+check("a daily quota is never treated as a pause", bothKinds.retryable === false, bothKinds.message.slice(0, 20));
 
 const perDay = describeGeminiError(
   429,
@@ -1918,6 +2139,57 @@ const recovered = await createGeminiProvider({ apiKey: "k", fetchImpl: flakyFetc
 check("a transient fault is retried once and recovers", serverAttempts === 2, `${serverAttempts} attempt(s)`);
 check("and the recovered turn is returned", recovered.blocks[0].type === "text");
 
+// The per-minute ceiling is the common failure on a free key, and the one
+// the CEO reported as "work stops immediately". It has to be waited out
+// rather than raised, and the pacer has to hear about it so the other agents
+// slow down instead of each discovering the same wall.
+let pacedAttempts = 0;
+const noticed: (number | null)[] = [];
+const rateLimitedFetch = (async () => {
+  pacedAttempts += 1;
+  if (pacedAttempts === 1) {
+    return new Response(
+      '{"error":{"code":429,"message":"Quota exceeded for quota metric \'Generate requests per minute\'","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"0s"}]}}',
+      { status: 429 },
+    );
+  }
+  return sse([{ candidates: [{ content: { parts: [{ text: "待ってから書けました" }] } }] }]);
+}) as unknown as typeof fetch;
+
+const afterWait = await createGeminiProvider({
+  apiKey: "k",
+  fetchImpl: rateLimitedFetch,
+  onRateLimit: (ms) => noticed.push(ms),
+}).send({
+  model: "m", system: "s", messages: [{ role: "user", content: "x" }],
+  tools: [], maxOutputTokens: 100, thinking: "off",
+});
+check("a per-minute limit is waited out, not reported as a stop", pacedAttempts === 2, `${pacedAttempts} attempt(s)`);
+check("and the work completes", afterWait.blocks[0].type === "text");
+check("and the pacer is told, so other agents slow down", noticed.length === 1, JSON.stringify(noticed));
+
+// A ceiling that never clears must still end, or the invocation is killed
+// by the platform with nothing recorded — strictly worse than reporting it.
+let foreverAttempts = 0;
+const alwaysLimited = (async () => {
+  foreverAttempts += 1;
+  return new Response(
+    '{"error":{"code":429,"message":"per minute","details":[{"retryDelay":"0s"}]}}',
+    { status: 429 },
+  );
+}) as unknown as typeof fetch;
+let gaveUp = "";
+try {
+  await createGeminiProvider({ apiKey: "k", fetchImpl: alwaysLimited }).send({
+    model: "m", system: "s", messages: [{ role: "user", content: "x" }],
+    tools: [], maxOutputTokens: 100, thinking: "off",
+  });
+} catch (error) {
+  gaveUp = (error as Error).message;
+}
+check("an unclearing limit gives up rather than hanging", gaveUp.includes("1分あたり"), gaveUp.slice(0, 24));
+check("and it stopped after a bounded number of tries", foreverAttempts > 1 && foreverAttempts <= 4, `${foreverAttempts} attempt(s)`);
+
 // ── web_fetch is ours now, so its safety is ours too ───────────────────────
 //
 // An agent can be handed a URL by a page it just read, so the target is
@@ -2069,6 +2341,58 @@ const paced = envScope(
 check("requests within the per-minute rate pass", paced[0].ok && paced[1].ok);
 check("the next one is held rather than refused outright", paced[2].ok === false && typeof paced[2].waitMs === "number");
 check("and the wait is under a minute", (paced[2].waitMs ?? 0) <= 60_250, String(paced[2].waitMs));
+
+// Pacing *at* the published ceiling was the mistake: the service counts
+// everything the key was charged for, including another app sharing it, so
+// the real limit is only ever discovered by being refused. The refusal parks
+// every caller for the hold the service named and lowers the rate we pace
+// against — but it must never raise a rate the operator set, and never
+// collapse to nothing because of one bad minute.
+mutate((st) => {
+  st.quota = undefined;
+});
+const learned = envScope(
+  { ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "0", FRIDAY_REQUESTS_PER_MINUTE: "12" },
+  () => {
+    reserve();
+    reserve();
+    reserve();
+    notePerMinuteLimit(1_000);
+    return reserve();
+  },
+);
+check("a refusal parks the next request", learned.ok === false, learned.reason?.slice(0, 24));
+check("for the hold the service named", (learned.waitMs ?? 0) <= 1_500, String(learned.waitMs));
+check("and the learned rate drops below where it was refused", (quota().learnedRpm ?? 99) < 12, String(quota().learnedRpm));
+check("but never collapses to nothing", (quota().learnedRpm ?? 0) >= 5, String(quota().learnedRpm));
+
+// The floor protects the learned value only. A rate the operator set
+// explicitly is a cap, and nothing in here may lift it.
+mutate((st) => {
+  st.quota = { day: pacificDay(), requests: 0, exhausted: false, recent: [], learnedRpm: 1 };
+});
+const explicitCap = envScope(
+  { ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "0", FRIDAY_REQUESTS_PER_MINUTE: "2" },
+  () => [reserve(), reserve(), reserve()],
+);
+check("an explicit rate still binds under a learned floor", explicitCap[0].ok && explicitCap[1].ok && explicitCap[2].ok === false);
+
+// A hold that outlasts the caller's ceiling is reported with when it comes
+// back, rather than holding a serverless invocation open past its deadline.
+mutate((st) => {
+  st.quota = {
+    day: pacificDay(),
+    requests: 0,
+    exhausted: false,
+    recent: [],
+    pausedUntil: Date.now() + 600_000,
+  };
+});
+const tooLong = await envScope({ ...budgetEnv, FRIDAY_DAILY_REQUEST_BUDGET: "0" }, () =>
+  reserveWithWait(1_000),
+);
+check("a hold past the ceiling is reported, not waited out", tooLong.ok === false);
+check("and says it resumes by itself", tooLong.reason?.includes("自動で再開") === true, tooLong.reason?.slice(0, 40));
 
 // The guard belongs to the free tier; a paid key should not be throttled.
 const paid = envScope(

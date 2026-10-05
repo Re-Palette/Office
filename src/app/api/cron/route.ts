@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { stateful } from "@/server/runtime/stateful";
 import { getConfig } from "@/server/runtime/config";
 import { jobHistory, jobs, runDueJobs } from "@/server/scheduler";
+import { background } from "@/server/runtime/background";
+import { runTick } from "@/server/runtime/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,8 +59,27 @@ async function handleGET(request: Request) {
       );
     }
     results = [await job.run(true)];
+  } else if (params.get("chain") === "1") {
+    // A link in the background chain. It keeps working after this response is
+    // sent and hands over to the next link itself, so the reply is only an
+    // acknowledgement — nobody is reading it.
+    background("tick", async () => {
+      const tick = await runTick();
+      console.log(
+        `[friday] tick: ${tick.passes}回実行 / ${tick.reason}` +
+          (tick.chained ? "" : " 連鎖終了。"),
+      );
+    });
+    return NextResponse.json({ accepted: true });
   } else {
+    // A platform cron or an open dashboard. Run what is due now and answer
+    // with it, then let the chain carry the rest of the day in the
+    // background — the caller should not wait for a day's work.
     results = await runDueJobs();
+    background("tick", async () => {
+      const tick = await runTick();
+      console.log(`[friday] tick: ${tick.passes}回実行 / ${tick.reason}`);
+    });
   }
 
   return NextResponse.json({

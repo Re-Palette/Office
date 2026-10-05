@@ -6,6 +6,7 @@ import { runAgent } from "@/server/agents/runner";
 import { AGENTS_BY_ID, EXECUTIVE_IDS } from "@/lib/company/agents";
 import { DEFAULT_SCHEDULE } from "@/lib/company/reports";
 import type { MeetingReport, ScheduleConfig } from "@/lib/types";
+import { ProviderError } from "@/lib/ai/types";
 
 /**
  * The company's recurring work.
@@ -23,6 +24,17 @@ export interface JobRun {
   at: number;
   ok: boolean;
   detail: string;
+  /**
+   * When this job may be claimed again, for a stop that was not its fault.
+   *
+   * A job's slot is claimed for the day before the work starts, so two
+   * triggers cannot both run it. That claim used to survive a rate-limit
+   * failure, which meant one brush with the per-minute ceiling retired the
+   * job until tomorrow — the company looked like it had given up for the day
+   * after a stop that clears in under a minute. A transient failure now sets
+   * this instead, and the next tick picks the job up.
+   */
+  retryAt?: number;
 }
 
 export interface JobResult {
@@ -53,8 +65,36 @@ function parseHHMM(value: string): number {
 
 function record(run: JobRun): void {
   mutate((s) => {
-    s.jobs = [run, ...(s.jobs ?? [])].slice(0, 100);
+    // One entry per job per day. The claim is replaced by its outcome rather
+    // than shadowed by it, so "may this run again?" has a single answer to
+    // read instead of a stack whose order decides the behaviour.
+    const rest = (s.jobs ?? []).filter((j) => !(j.id === run.id && j.ranFor === run.ranFor));
+    s.jobs = [run, ...rest].slice(0, 100);
   });
+}
+
+/**
+ * How long to hold a job that stopped for a reason outside itself.
+ *
+ * A quota ceiling, a network blip and a provider fault are all the same kind
+ * of event: nothing about the job is wrong, so retiring it for the day throws
+ * away work that will succeed shortly. A genuine failure returns null and
+ * keeps its slot, because repeating it would just repeat the error.
+ */
+function transientHoldMs(error: unknown): number | null {
+  if (error instanceof ProviderError) {
+    // The daily quota is the one stop worth respecting: there is nothing to
+    // wait for until it rolls over, and the budget layer already records it.
+    if (/1日あたり|本日/.test(error.message)) return null;
+    if (error.status === 429) return Math.max(error.retryAfterMs ?? 60_000, 30_000);
+    if (error.status === null) return 60_000;
+    if (error.status >= 500) return 120_000;
+    return null;
+  }
+  // A pacing refusal surfaces as a plain message from the budget gate.
+  const message = (error as Error)?.message ?? "";
+  if (/1分あたり|上限に達しました|待機/.test(message)) return 60_000;
+  return null;
 }
 
 export function jobHistory(): JobRun[] {
@@ -125,7 +165,7 @@ interface JobSpec {
  */
 async function runJob(
   spec: JobSpec,
-  work: () => Promise<{ ok: boolean; detail: string; waiting?: boolean }>,
+  work: () => Promise<{ ok: boolean; detail: string; waiting?: boolean; holdMs?: number }>,
   force = false,
 ): Promise<JobResult> {
   const cfg = getConfig();
@@ -144,8 +184,13 @@ async function runJob(
 
   const claimed = mutate((s) => {
     s.jobs ??= [];
-    if (!force && s.jobs.some((j) => j.id === spec.id && j.ranFor === day)) return false;
-    s.jobs = [{ id: spec.id, ranFor: day, at, ok: false, detail: "実行中" }, ...s.jobs].slice(0, 100);
+    const existing = s.jobs.find((j) => j.id === spec.id && j.ranFor === day);
+    // A held job is claimable again once its hold has passed; anything else
+    // already recorded for today is done with.
+    const held = existing?.retryAt !== undefined && at >= existing.retryAt;
+    if (!force && existing && !held) return false;
+    const rest = s.jobs.filter((j) => !(j.id === spec.id && j.ranFor === day));
+    s.jobs = [{ id: spec.id, ranFor: day, at, ok: false, detail: "実行中" }, ...rest].slice(0, 100);
     return true;
   });
   if (!claimed) {
@@ -154,6 +199,13 @@ async function runJob(
 
   try {
     const outcome = await work();
+
+    // A stop that was not this job's fault leaves the slot claimable, so the
+    // next tick picks the work up without anyone asking.
+    if (!outcome.ok && outcome.holdMs !== undefined) {
+      return holdJob(spec, day, outcome.holdMs, outcome.detail);
+    }
+
     record({ id: spec.id, ranFor: day, at: Date.now(), ok: outcome.ok, detail: outcome.detail.slice(0, 160) });
     return {
       id: spec.id,
@@ -162,9 +214,33 @@ async function runJob(
     };
   } catch (error) {
     const message = (error as Error).message ?? "unknown";
-    record({ id: spec.id, ranFor: day, at: Date.now(), ok: false, detail: message.slice(0, 160) });
+    const hold = transientHoldMs(error);
+    const now = Date.now();
+
+    if (hold !== null) return holdJob(spec, day, hold, message);
+
+    record({ id: spec.id, ranFor: day, at: now, ok: false, detail: message.slice(0, 160) });
     return { id: spec.id, status: "failed", detail: message };
   }
+}
+
+/**
+ * Records a stop the job is not to blame for, and leaves the slot open.
+ *
+ * "waiting" rather than "failed" is the point: the work is still owed, the
+ * next tick will take it, and the CEO should not be told something broke.
+ */
+function holdJob(spec: JobSpec, day: string, holdMs: number, message: string): JobResult {
+  const now = Date.now();
+  record({
+    id: spec.id,
+    ranFor: day,
+    at: now,
+    ok: false,
+    detail: `${message.slice(0, 120)}（${Math.ceil(holdMs / 1000)}秒後に自動で再開）`,
+    retryAt: now + holdMs,
+  });
+  return { id: spec.id, status: "waiting", detail: `${message} 自動で再開します。` };
 }
 
 /**
@@ -175,12 +251,18 @@ async function runJob(
  * would make a working gate look like a broken job, and would hide the ask.
  */
 async function asJob(
-  run: Promise<{ status: string; text: string; error?: string }>,
-): Promise<{ ok: boolean; detail: string; waiting?: boolean }> {
+  run: Promise<{ status: string; text: string; error?: string; retryAfterMs?: number }>,
+): Promise<{ ok: boolean; detail: string; waiting?: boolean; holdMs?: number }> {
   const result = await run;
   if (result.status === "completed") return { ok: true, detail: result.text };
   if (result.status === "waiting_for_ceo") {
     return { ok: true, waiting: true, detail: `CEO承認待ち: ${result.text}` };
+  }
+  // The run failed for a reason outside itself. Every exception becomes a
+  // result inside runAgent, so this hint is the only way the hold survives
+  // the trip out — without it the job would be retired for the day.
+  if (result.retryAfterMs !== undefined) {
+    return { ok: false, holdMs: result.retryAfterMs, detail: result.error ?? result.status };
   }
   return { ok: false, detail: result.error ?? result.status };
 }

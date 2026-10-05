@@ -110,6 +110,14 @@ export interface WorkState {
    */
   agentAccess?: { token: string; createdAt: number; label: string };
   /**
+   * The background heartbeat's own bookkeeping, by Pacific day.
+   *
+   * Lives here rather than in memory because each link of the chain is a
+   * different serverless instance, so an in-process counter would reset on
+   * every hop and the cap would never bind.
+   */
+  tick?: { day: string; chains: number; lastAt: number };
+  /**
    * How many tasks the company has advanced on its own today, by JST day.
    *
    * Persisted rather than held in memory because on serverless each instance

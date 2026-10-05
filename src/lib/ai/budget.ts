@@ -33,6 +33,17 @@ import { mutate, read } from "@/server/runtime/store";
 /** Requests-per-minute pacing window. */
 const MINUTE_MS = 60_000;
 
+/**
+ * The longest this will hold an invocation waiting for the pacer.
+ *
+ * A per-minute hold is at most one window, so the ceiling has to be above a
+ * window or the wait is pointless — which it was at 20s: any burst that
+ * filled the minute early was reported to the CEO as a stop instead of being
+ * waited out. Above this the caller is told when it will resume, and the
+ * scheduler picks the work up on its next tick.
+ */
+const MAX_PACING_WAIT_MS = 70_000;
+
 export interface QuotaState {
   /** Pacific day these counters belong to, as YYYY-MM-DD. */
   day: string;
@@ -42,7 +53,27 @@ export interface QuotaState {
   exhausted: boolean;
   /** Timestamps of recent requests, for per-minute pacing. */
   recent: number[];
+  /**
+   * Set when the service itself refused for the per-minute ceiling.
+   *
+   * Our pacing counts what this company sent. The service counts everything
+   * the key was charged for, which can include another app sharing it. When
+   * the two disagree the service is right, so its refusal parks every caller
+   * until the hold it named has passed.
+   */
+  pausedUntil?: number;
+  /**
+   * The per-minute ceiling the service has actually enforced today.
+   *
+   * Learned the only way it can be: by being refused. Floored, because a
+   * single burst from elsewhere should slow the company down, not stop it,
+   * and cleared with the Pacific day along with the rest of this state.
+   */
+  learnedRpm?: number;
 }
+
+/** Never pace below this, however often the service refuses. */
+const MIN_LEARNED_RPM = 5;
 
 /** The Pacific calendar day, which is when a Gemini free-tier day rolls over. */
 export function pacificDay(at: number = Date.now()): string {
@@ -111,10 +142,26 @@ export function reserve(): Verdict {
       };
     }
 
+    // A hold the service asked for outranks our own arithmetic.
+    if (current.pausedUntil && current.pausedUntil > now) {
+      return {
+        ok: false,
+        waitMs: current.pausedUntil - now,
+        reason: "APIが1分あたりの上限と返したため待機しています。",
+      };
+    }
+
     // Per-minute pacing. The loop is sequential, so a short wait here is
     // cheaper than a 429 that abandons a run halfway through.
     current.recent = current.recent.filter((t) => now - t < MINUTE_MS);
-    if (cfg.requestsPerMinute > 0 && current.recent.length >= cfg.requestsPerMinute) {
+    // The configured rate is always the cap. The floor applies only to what
+    // was *learned* from a refusal, so one bad minute cannot throttle the
+    // company to nothing — it must never raise a limit the operator set.
+    const learned =
+      current.learnedRpm === undefined ? null : Math.max(MIN_LEARNED_RPM, current.learnedRpm);
+    const ceiling =
+      learned === null ? cfg.requestsPerMinute : Math.min(cfg.requestsPerMinute, learned);
+    if (cfg.requestsPerMinute > 0 && current.recent.length >= ceiling) {
       const oldest = current.recent[0];
       return {
         ok: false,
@@ -126,6 +173,37 @@ export function reserve(): Verdict {
     current.requests += 1;
     current.recent.push(now);
     return { ok: true };
+  });
+}
+
+/**
+ * Called when the API has said the minute is full.
+ *
+ * Two things follow. Every caller parks until the hold the service named has
+ * passed, so a burst does not keep walking into the same wall. And the
+ * ceiling we pace against drops below the count that was refused, because
+ * being refused is the only way to find out what the real limit is — the
+ * published number is per project and not guaranteed.
+ *
+ * Unlike the daily stop this is not a verdict, just a slowdown: it clears
+ * with the Pacific day and never falls below MIN_LEARNED_RPM.
+ */
+export function notePerMinuteLimit(retryAfterMs: number | null): void {
+  const now = Date.now();
+  const today = pacificDay(now);
+
+  mutate((state) => {
+    const current =
+      state.quota && state.quota.day === today ? state.quota : (state.quota = blank(today));
+
+    const hold = retryAfterMs && retryAfterMs > 0 ? retryAfterMs : 20_000;
+    current.pausedUntil = Math.max(current.pausedUntil ?? 0, now + hold);
+
+    const inWindow = current.recent.filter((t) => now - t < MINUTE_MS).length;
+    if (inWindow > 0) {
+      const refusedAt = Math.max(MIN_LEARNED_RPM, inWindow - 1);
+      current.learnedRpm = Math.min(current.learnedRpm ?? refusedAt, refusedAt);
+    }
   });
 }
 
@@ -164,18 +242,30 @@ export function refund(): void {
  * holding a serverless invocation open, which has its own timeout and costs
  * more than the request would have.
  */
-export async function reserveWithWait(maxWaitMs = 20_000): Promise<Verdict> {
-  const first = reserve();
-  if (first.ok || !first.waitMs) return first;
-  if (first.waitMs > maxWaitMs) {
-    return {
-      ok: false,
-      reason:
-        "1分あたりのリクエスト上限に達しました。" +
-        `${Math.ceil(first.waitMs / 1000)}秒ほど待ってから再実行してください。`,
-    };
+export async function reserveWithWait(maxWaitMs = MAX_PACING_WAIT_MS): Promise<Verdict> {
+  let waited = 0;
+
+  // Several passes, because the slot a wait frees can be taken by another
+  // invocation before this one wakes. Giving up after a single retry was
+  // reported as the company stopping the moment it got busy.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const verdict = reserve();
+    if (verdict.ok || !verdict.waitMs) return verdict;
+
+    const hold = verdict.waitMs;
+    if (waited + hold > maxWaitMs) {
+      return {
+        ok: false,
+        reason:
+          "1分あたりのリクエスト上限が続いています。" +
+          `${Math.ceil(hold / 1000)}秒後に自動で再開します。`,
+        waitMs: hold,
+      };
+    }
+    waited += hold;
+    await new Promise((r) => setTimeout(r, hold));
   }
-  await new Promise((r) => setTimeout(r, first.waitMs));
+
   return reserve();
 }
 

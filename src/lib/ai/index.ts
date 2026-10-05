@@ -5,7 +5,7 @@ import { createStubProvider } from "@/server/agents/stub-transport";
 import { createAnthropicProvider } from "./anthropic";
 import { createGeminiProvider } from "./gemini";
 import { createOpenAiProvider } from "./openai";
-import { markExhausted, refund, reserveWithWait } from "./budget";
+import { markExhausted, notePerMinuteLimit, refund, reserveWithWait } from "./budget";
 import { ProviderError, type Provider, type ProviderId, type SearchResult } from "./types";
 
 /**
@@ -23,7 +23,14 @@ import { ProviderError, type Provider, type ProviderId, type SearchResult } from
 
 const BUILDERS: Record<Exclude<ProviderId, "stub">, (cfg: ReturnType<typeof getConfig>) => Provider> = {
   gemini: (cfg) =>
-    createGeminiProvider({ apiKey: cfg.apiKey, searchModel: cfg.searchModel }),
+    createGeminiProvider({
+      apiKey: cfg.apiKey,
+      searchModel: cfg.searchModel,
+      // The provider retries a per-minute refusal itself; this is how the
+      // pacer finds out, so the other agents slow down instead of each
+      // discovering the same wall.
+      onRateLimit: notePerMinuteLimit,
+    }),
 
   anthropic: (cfg) =>
     createAnthropicProvider({
@@ -62,8 +69,10 @@ function guarded(provider: Provider): Provider {
     } catch (error) {
       if (error instanceof ProviderError) {
         if (error.status === 429 && /1日あたり|本日/.test(error.message)) markExhausted();
-        // A rejected request produced nothing, so it is not spent allowance.
-        else if (error.status === null) refund();
+        // A refusal produced nothing, so it is not spent allowance. The
+        // per-minute ceiling counts here too: the request never ran, and
+        // charging it would shrink the day's work for no reason.
+        else if (error.status === null || error.status === 429) refund();
       }
       throw error;
     }

@@ -262,32 +262,78 @@ export function foldChunks(chunks: GeminiChunk[]): ModelResponse {
   };
 }
 
+/**
+ * How hard to try before handing the failure back.
+ *
+ * Four passes covers the realistic case: one hold for the per-minute ceiling,
+ * one retired-model substitution, and a transient fault. The total hold is
+ * what actually matters, since the invocation has a deadline of its own.
+ */
+const MAX_ATTEMPTS = 4;
+const MAX_TOTAL_WAIT_MS = 75_000;
+
 /* ── Errors ───────────────────────────────────────────────────────────────── */
+
+/**
+ * How long the service itself says to wait, in milliseconds.
+ *
+ * A 429 carries RetryInfo.retryDelay ("41s", "1.5s"). That number beats any
+ * guess we could make: our pacing counts the requests we know about, while
+ * this counts what the service actually charged the key for — including the
+ * calls another app sharing the key made.
+ */
+export function parseRetryDelay(body: string): number | null {
+  const match = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(body);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  // A service that asks for an implausibly long hold is treated as a minute,
+  // because the caller's own ceiling decides whether to wait at all.
+  return Math.min(seconds * 1000 + 250, 120_000);
+}
 
 /**
  * Turns a Gemini failure into something the CEO can act on.
  *
- * 429 is the one that matters on a free key, and it is deliberately NOT
- * retryable here: the quota is per minute or per day, so an automatic retry
- * either fails again immediately or burns the next window. Saying which it is,
- * and stopping, is more useful than trying again.
+ * 429 is the one that matters on a free key, and the two kinds of 429 need
+ * opposite handling. Both used to stop the run, and that was wrong: the
+ * per-minute ceiling clears in under a minute, so stopping threw away work
+ * that waiting would have completed. The company's jobs ran once, hit the
+ * ceiling, and sat failed for the rest of the day.
+ *
+ *   per minute → retryable, after the delay the service names. A pause.
+ *   per day    → not retryable. Nothing to wait for until the quota rolls
+ *                over at midnight Pacific, so it is recorded and the
+ *                company stops asking.
  *
  * Split out as a pure function so it can be tested without a network call.
  */
 export function describeGeminiError(status: number | null, body: string): {
   message: string;
   retryable: boolean;
+  retryAfterMs?: number | null;
 } {
   const detail = body.slice(0, 400);
 
   if (status === 429) {
-    const daily = /per day|PerDay|requests per day/i.test(body);
+    // "per day" / PerDay appears in the violated quota's id. Anything else
+    // at 429 is a shorter window, which waiting fixes.
+    const daily = /per\s*day|PerDay|requests per day/i.test(body);
+    if (daily) {
+      return {
+        message:
+          "Gemini APIの1日あたりの無料枠を使い切りました。日付が変わる（太平洋時間の0時）まで待つか、" +
+          "Google AI Studio で課金を有効にしてください。自動で再試行はしません。",
+        retryable: false,
+      };
+    }
+    const wait = parseRetryDelay(body);
     return {
-      message: daily
-        ? "Gemini APIの1日あたりの無料枠を使い切りました。日付が変わる（太平洋時間の0時）まで待つか、" +
-          "Google AI Studio で課金を有効にしてください。自動で再試行はしません。"
-        : "Gemini APIのレート制限に達しました（1分あたりの回数上限）。1分ほど待ってから再実行してください。",
-      retryable: false,
+      message:
+        "Gemini APIの1分あたりの回数上限に達しました。" +
+        (wait ? `${Math.ceil(wait / 1000)}秒待って自動で再実行します。` : "少し待って自動で再実行します。"),
+      retryable: true,
+      retryAfterMs: wait ?? 20_000,
     };
   }
   if (status === 400 && /API_KEY_INVALID|API key not valid/i.test(body)) {
@@ -463,6 +509,14 @@ export interface GeminiOptions {
   searchModel: string;
   /** Lets the self-test drive the provider without a network. */
   fetchImpl?: typeof fetch;
+  /**
+   * Told when the service refused for the per-minute ceiling.
+   *
+   * Passed in rather than imported so this module stays a leaf that the
+   * self-test can drive without a store or a clock. The budget layer is the
+   * one that knows how to slow down; this only reports the refusal.
+   */
+  onRateLimit?: (retryAfterMs: number | null) => void;
 }
 
 export function createGeminiProvider(options: GeminiOptions): Provider {
@@ -515,13 +569,29 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
       // A model already known to have been retired is not asked for again.
       let model = substitutions.get(request.model) ?? request.model;
       let recovered = false;
+      /** Set from the service's own RetryInfo, and consumed by the next pass. */
+      let pendingWaitMs: number | null = null;
 
-      // One retry, and only for a transient server fault or a retired model.
-      // A quota error is never retried — see describeGeminiError.
+      // Retries cover a transient server fault, a retired model, and the
+      // per-minute ceiling. The ceiling is the common one on a free key and
+      // the one worth waiting for: it clears in under a minute, so a run that
+      // stops on it throws away work a short pause would have finished.
+      //
+      // The total hold is bounded, because this runs inside a serverless
+      // invocation with its own deadline. Exceeding it would turn a paused
+      // run into a killed one with nothing recorded, which is strictly worse
+      // than reporting the ceiling and letting the next tick resume.
       let lastError: ProviderError | null = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (attempt > 0 && !recovered) await new Promise((r) => setTimeout(r, 1500));
+      let waited = 0;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        if (attempt > 0 && !recovered) {
+          const hold = pendingWaitMs ?? 1500;
+          if (waited + hold > MAX_TOTAL_WAIT_MS) break;
+          waited += hold;
+          await new Promise((r) => setTimeout(r, hold));
+        }
         recovered = false;
+        pendingWaitMs = null;
 
         const url =
           `${HOST}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
@@ -540,6 +610,7 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
         } catch (error) {
           const { message, retryable } = describeGeminiError(null, (error as Error).message);
           lastError = new ProviderError(message, null, retryable);
+          if (!retryable) throw lastError;
           continue;
         }
 
@@ -563,9 +634,14 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
             }
           }
 
-          const { message, retryable } = describeGeminiError(response.status, text);
-          lastError = new ProviderError(message, response.status, retryable);
+          const { message, retryable, retryAfterMs } = describeGeminiError(response.status, text);
+          lastError = new ProviderError(message, response.status, retryable, retryAfterMs ?? null);
           if (!retryable) throw lastError;
+          // The service named a hold; the next pass waits exactly that long.
+          pendingWaitMs = retryAfterMs ?? null;
+          // Our own pacing undercounted if the service refused at a point we
+          // thought was clear, so tell the pacer before trying again.
+          if (response.status === 429) options.onRateLimit?.(retryAfterMs ?? null);
           continue;
         }
 

@@ -538,8 +538,14 @@ export function getConfig(): RuntimeConfig {
     // headroom that a normal day never reaches them, and enough margin that
     // a figure which turns out to be wrong does not cost the whole day. The
     // hard stop still comes from the API's own 429, never from this number.
-    dailyRequestBudget: int(process.env.FRIDAY_DAILY_REQUEST_BUDGET, 500),
-    requestsPerMinute: int(process.env.FRIDAY_REQUESTS_PER_MINUTE, 15),
+    // The free tier allows 1,000 requests a day and 15 a minute on
+    // Flash-Lite. The daily figure keeps a margin under that. The per-minute
+    // one sits below the ceiling on purpose: pacing *at* 15 meant every
+    // request near the boundary raced the service's own counter and lost,
+    // which is what made the company stop as soon as it got busy. The
+    // service also counts calls from anything else sharing the key.
+    dailyRequestBudget: int(process.env.FRIDAY_DAILY_REQUEST_BUDGET, 800),
+    requestsPerMinute: int(process.env.FRIDAY_REQUESTS_PER_MINUTE, 10),
     thinking: thinkingLevel(),
     // Lower than they were under a paid key: on the free tier every loop step
     // is one of a small number of requests per minute, so the ceilings double

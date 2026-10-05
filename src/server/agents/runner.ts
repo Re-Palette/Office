@@ -84,6 +84,16 @@ export interface RunResult {
   steps: number;
   usage: { inputTokens: number; outputTokens: number };
   error?: string;
+  /**
+   * Set when the failure was the service's, not the work's.
+   *
+   * A quota ceiling or a network fault says nothing about whether this run
+   * can succeed — only that now was the wrong moment. Every error is turned
+   * into a result here, so without this the caller would have to guess from
+   * the prose which failures are worth coming back to, and a scheduled job
+   * that guessed wrong stayed failed for the rest of the day.
+   */
+  retryAfterMs?: number;
 }
 
 
@@ -534,6 +544,7 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
     };
   } catch (error) {
     const message = describeError(error);
+    const retryAfterMs = transientRetryMs(error);
     closeRun(run, { status: "failed", steps, usage, error: message });
     pushActivity({
       kind: "agent.completed",
@@ -544,6 +555,7 @@ async function driveLoop(args: LoopArgs): Promise<RunResult> {
       severity: "critical",
     });
     return {
+      ...(retryAfterMs === null ? {} : { retryAfterMs }),
       runId: run.id,
       agentId: options.agentId,
       status: "failed",
@@ -602,6 +614,28 @@ export function describeError(error: unknown): string {
   if (error instanceof ProviderError) return error.message;
   const message = (error as Error)?.message;
   return message ? describeBadRequest(message) : "不明なエラー";
+}
+
+/**
+ * How long to wait before this run is worth trying again, or null if never.
+ *
+ * Classified here, where the exception is still in hand. The daily quota is
+ * the one ceiling with nothing to wait for, so it reads as permanent for the
+ * rest of the Pacific day and the caller stops asking.
+ */
+export function transientRetryMs(error: unknown): number | null {
+  if (error instanceof ProviderError) {
+    if (/1日あたり|本日/.test(error.message)) return null;
+    if (error.status === 429) return Math.max(error.retryAfterMs ?? 60_000, 30_000);
+    if (error.status === null) return 60_000;
+    if (error.status >= 500) return 120_000;
+    return null;
+  }
+  // The budget gate refuses before the provider is reached, and its refusal
+  // is a plain Error: a pacing hold, not a broken request.
+  const message = (error as Error)?.message ?? "";
+  if (/1分あたり|自動で再開/.test(message)) return 60_000;
+  return null;
 }
 
 /* ── Resuming after a CEO decision ────────────────────────────────────────── */
